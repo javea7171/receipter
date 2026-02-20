@@ -5,20 +5,30 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
 
 	"receipter/frontend/login"
 	"receipter/infrastructure/sqlite"
 )
 
 func main() {
-	dbPath := getenv("SQLITE_PATH", "receipter.db")
+	migrationsDir, err := resolveMigrationsDir()
+	if err != nil {
+		log.Fatalf("resolve migrations dir: %v", err)
+	}
+
+	defaultDBPath := filepath.Join(filepath.Dir(filepath.Dir(filepath.Dir(migrationsDir))), "receipter.db")
+	dbPath := getenv("SQLITE_PATH", defaultDBPath)
+
 	db, err := sqlite.OpenDB(dbPath)
 	if err != nil {
 		log.Fatalf("open db: %v", err)
 	}
 	defer db.Close()
 
-	if err := sqlite.ApplyMigrations(context.Background(), db, "infrastructure/sqlite/migrations"); err != nil {
+	if err := sqlite.ApplyMigrations(context.Background(), db, migrationsDir); err != nil {
 		log.Fatalf("apply migrations: %v", err)
 	}
 
@@ -35,4 +45,34 @@ func getenv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func resolveMigrationsDir() (string, error) {
+	candidates := []string{
+		filepath.Join("infrastructure", "sqlite", "migrations"),
+		filepath.Join("..", "..", "infrastructure", "sqlite", "migrations"),
+	}
+
+	if _, file, _, ok := runtime.Caller(0); ok {
+		candidates = append(candidates, filepath.Join(filepath.Dir(file), "..", "..", "infrastructure", "sqlite", "migrations"))
+	}
+
+	tried := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		absPath, err := filepath.Abs(candidate)
+		if err != nil {
+			continue
+		}
+		tried = append(tried, absPath)
+
+		info, err := os.Stat(absPath)
+		if err != nil {
+			continue
+		}
+		if info.IsDir() {
+			return absPath, nil
+		}
+	}
+
+	return "", fmt.Errorf("migrations dir not found; tried: %s", strings.Join(tried, ", "))
 }

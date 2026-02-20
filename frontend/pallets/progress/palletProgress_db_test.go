@@ -82,3 +82,37 @@ func TestUpdatePalletStatus_CloseAndReopenWritesAudit(t *testing.T) {
 		t.Fatalf("expected 2 audit rows, got %d", auditCount)
 	}
 }
+
+func TestLoadSummary_StatusFilterAndCounts(t *testing.T) {
+	db := openProgressTestDB(t)
+
+	err := db.WithWriteTx(context.Background(), func(ctx context.Context, tx bun.Tx) error {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO pallets (id, status, created_at) VALUES (1, 'created', CURRENT_TIMESTAMP)`); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO pallets (id, status, created_at) VALUES (2, 'open', CURRENT_TIMESTAMP)`); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO pallets (id, status, created_at) VALUES (3, 'closed', CURRENT_TIMESTAMP)`); err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("seed pallets: %v", err)
+	}
+
+	summary, err := LoadSummary(context.Background(), db, "open")
+	if err != nil {
+		t.Fatalf("load summary: %v", err)
+	}
+	if summary.CreatedCount != 1 || summary.OpenCount != 1 || summary.ClosedCount != 1 {
+		t.Fatalf("unexpected counts: %+v", summary)
+	}
+	if summary.StatusFilter != "open" {
+		t.Fatalf("expected filter=open, got %s", summary.StatusFilter)
+	}
+	if len(summary.Pallets) != 1 || summary.Pallets[0].Status != "open" {
+		t.Fatalf("expected only open pallets in filtered list, got %+v", summary.Pallets)
+	}
+}

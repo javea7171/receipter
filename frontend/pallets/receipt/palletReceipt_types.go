@@ -28,20 +28,22 @@ type ReceiptInput struct {
 }
 
 type ReceiptLineView struct {
-	ID             int64
-	SKU            string
-	Description    string
-	Qty            int64
-	Damaged        bool
-	DamagedQty     int64
-	BatchNumber    string
-	ExpiryDateUK   string
-	CartonBarcode  string
-	ItemBarcode    string
-	HasPhoto       bool
-	PhotoCount     int
-	NoOuterBarcode bool
-	NoInnerBarcode bool
+	ID              int64
+	SKU             string
+	Description     string
+	Qty             int64
+	Damaged         bool
+	DamagedQty      int64
+	BatchNumber     string
+	ExpiryDateUK    string
+	CartonBarcode   string
+	ItemBarcode     string
+	HasPhoto        bool
+	HasPrimaryPhoto bool
+	PhotoIDs        []int64
+	PhotoCount      int
+	NoOuterBarcode  bool
+	NoInnerBarcode  bool
 }
 
 type PageData struct {

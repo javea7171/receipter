@@ -57,7 +57,7 @@ func (s *Server) RegisterPalletRoutes(r chi.Router) {
 	s.Rbac.Add(rbac.RoleScanner, "PALLET_SCAN_VIEW", http.MethodGet, "/tasker/scan/pallet")
 	r.Get("/scan/pallet", palletlabels.ScanPalletPageQueryHandler())
 
-	s.Rbac.Add(rbac.RoleScanner, "PALLET_CONTENT_LABEL_VIEW", http.MethodGet, "/tasker/pallets/*/content-label")
+	s.Rbac.Add(rbac.RoleAdmin, "PALLET_CONTENT_LABEL_VIEW", http.MethodGet, "/tasker/pallets/*/content-label")
 	r.Get("/pallets/{id}/content-label", palletlabels.PalletContentLabelPageQueryHandler(s.DB))
 
 	s.Rbac.Add(rbac.RoleScanner, "PALLET_RECEIPT_VIEW", http.MethodGet, "/tasker/pallets/*/receipt")

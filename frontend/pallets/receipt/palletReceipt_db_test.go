@@ -42,8 +42,16 @@ func openTestDB(t *testing.T) *sqlite.DB {
 
 func seedPallet(t *testing.T, db *sqlite.DB, palletID int64) {
 	t.Helper()
+	seedPalletWithStatus(t, db, palletID, "open")
+}
+
+func seedPalletWithStatus(t *testing.T, db *sqlite.DB, palletID int64, status string) {
+	t.Helper()
 	err := db.WithWriteTx(context.Background(), func(ctx context.Context, tx bun.Tx) error {
-		_, err := tx.ExecContext(ctx, `INSERT INTO pallets (id, status, created_at) VALUES (?, 'open', CURRENT_TIMESTAMP)`, palletID)
+		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO users (id, username, password_hash, role, created_at, updated_at) VALUES (1, 'scanner-test', 'hash', 'scanner', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, `INSERT INTO pallets (id, status, created_at) VALUES (?, ?, CURRENT_TIMESTAMP)`, palletID, status)
 		return err
 	})
 	if err != nil {
@@ -162,6 +170,85 @@ func TestSaveReceipt_DamagedQtyCannotExceedQty(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "damaged qty cannot exceed qty") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestSaveReceipt_PromotesCreatedPalletToOpenOnFirstLine(t *testing.T) {
+	db := openTestDB(t)
+	seedPalletWithStatus(t, db, 6, "created")
+
+	expiry, _ := time.Parse("2006-01-02", "2028-03-10")
+	in := ReceiptInput{
+		PalletID:    6,
+		SKU:         "PROMO-1",
+		Description: "Promote status",
+		Qty:         1,
+		BatchNumber: "PR1",
+		ExpiryDate:  expiry,
+	}
+	if err := SaveReceipt(context.Background(), db, nil, 1, in); err != nil {
+		t.Fatalf("save receipt: %v", err)
+	}
+
+	var status string
+	err := db.WithReadTx(context.Background(), func(ctx context.Context, tx bun.Tx) error {
+		return tx.NewRaw(`SELECT status FROM pallets WHERE id = 6`).Scan(ctx, &status)
+	})
+	if err != nil {
+		t.Fatalf("load pallet status: %v", err)
+	}
+	if status != "open" {
+		t.Fatalf("expected pallet status open after first receipt, got %s", status)
+	}
+}
+
+func TestLoadPageData_IncludesPrimaryAndMultiPhotoLinks(t *testing.T) {
+	db := openTestDB(t)
+	seedPallet(t, db, 5)
+
+	expiry, _ := time.Parse("2006-01-02", "2028-01-31")
+	in := ReceiptInput{
+		PalletID:       5,
+		SKU:            "PIC-1",
+		Description:    "Photo Item",
+		Qty:            2,
+		BatchNumber:    "PB1",
+		ExpiryDate:     expiry,
+		StockPhotoBlob: []byte{0xFF, 0xD8, 0xFF, 0xD9},
+		StockPhotoMIME: "image/jpeg",
+		StockPhotoName: "primary.jpg",
+		Photos: []PhotoInput{
+			{Blob: []byte{0x89, 0x50, 0x4E, 0x47}, MIMEType: "image/png", FileName: "p1.png"},
+			{Blob: []byte{0x89, 0x50, 0x4E, 0x47, 0x32}, MIMEType: "image/png", FileName: "p2.png"},
+		},
+	}
+	if err := SaveReceipt(context.Background(), db, nil, 1, in); err != nil {
+		t.Fatalf("save receipt with photos: %v", err)
+	}
+
+	data, err := LoadPageData(context.Background(), db, 5)
+	if err != nil {
+		t.Fatalf("load page data: %v", err)
+	}
+	if len(data.Lines) != 1 {
+		t.Fatalf("expected 1 line, got %d", len(data.Lines))
+	}
+
+	line := data.Lines[0]
+	if !line.HasPhoto {
+		t.Fatalf("expected line.HasPhoto true")
+	}
+	if !line.HasPrimaryPhoto {
+		t.Fatalf("expected line.HasPrimaryPhoto true")
+	}
+	if line.PhotoCount != 2 {
+		t.Fatalf("expected line.PhotoCount 2, got %d", line.PhotoCount)
+	}
+	if len(line.PhotoIDs) != 2 {
+		t.Fatalf("expected 2 photo ids, got %d", len(line.PhotoIDs))
+	}
+	if line.PhotoIDs[0] <= 0 || line.PhotoIDs[1] <= 0 {
+		t.Fatalf("expected persisted photo ids, got %+v", line.PhotoIDs)
 	}
 }
 

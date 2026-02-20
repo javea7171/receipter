@@ -27,6 +27,8 @@ templ PalletReceiptPage(data PageData) {
 						<div class="flex items-center gap-2 mt-1">
 							if data.PalletStatus == "open" {
 								<span class="badge badge-success">{ data.PalletStatus }</span>
+							} else if data.PalletStatus == "created" {
+								<span class="badge badge-warning">{ data.PalletStatus }</span>
 							} else {
 								<span class="badge badge-neutral">{ data.PalletStatus }</span>
 							}
@@ -101,7 +103,16 @@ templ PalletReceiptPage(data PageData) {
 												<td>{ line.BatchNumber }</td>
 												<td>{ line.ExpiryDateUK }</td>
 												<td>
-													if line.HasPhoto {
+													if len(line.PhotoIDs) > 0 {
+														<div class="flex flex-wrap gap-1">
+															for i, photoID := range line.PhotoIDs {
+																<a class="btn btn-soft btn-primary btn-xs" href={ fmt.Sprintf("/tasker/api/pallets/%d/receipts/%d/photos/%d", data.PalletID, line.ID, photoID) } target="_blank" rel="noopener">{ strconv.Itoa(i + 1) }</a>
+															}
+															if line.HasPrimaryPhoto {
+																<a class="btn btn-soft btn-secondary btn-xs" href={ fmt.Sprintf("/tasker/api/pallets/%d/receipts/%d/photo", data.PalletID, line.ID) } target="_blank" rel="noopener">Primary</a>
+															}
+														</div>
+													} else if line.HasPrimaryPhoto {
 														<a class="btn btn-soft btn-primary btn-xs" href={ fmt.Sprintf("/tasker/api/pallets/%d/receipts/%d/photo", data.PalletID, line.ID) } target="_blank" rel="noopener">View</a>
 													} else {
 														<span class="text-base-content/40">--</span>
@@ -140,9 +151,12 @@ templ PalletReceiptPage(data PageData) {
 												</div>
 												<div class="text-base-content/60">Photos</div>
 												<div>
-													if line.PhotoCount > 0 {
-														<span class="badge badge-primary badge-soft">{ strconv.Itoa(line.PhotoCount) }</span>
-													} else if line.HasPhoto {
+													if len(line.PhotoIDs) > 0 {
+														<div class="flex items-center gap-2">
+															<a class="link link-primary font-medium" href={ fmt.Sprintf("/tasker/api/pallets/%d/receipts/%d/photos/%d", data.PalletID, line.ID, line.PhotoIDs[0]) } target="_blank" rel="noopener">View</a>
+															<span class="badge badge-primary badge-soft">{ strconv.Itoa(len(line.PhotoIDs)) }</span>
+														</div>
+													} else if line.HasPrimaryPhoto {
 														<a class="link link-primary font-medium" href={ fmt.Sprintf("/tasker/api/pallets/%d/receipts/%d/photo", data.PalletID, line.ID) } target="_blank" rel="noopener">View</a>
 													} else {
 														<span class="text-base-content/40">--</span>

@@ -1,81 +1,138 @@
 package labels
 
-templ PalletContentLabel(palletID int64, status string, lines []ContentLine) {
+import (
+	"fmt"
+	"net/url"
+)
+
+const contentDatastarBundleURL = "https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.0-RC.7/bundles/datastar.js"
+
+func contentStatusBadge(status string) string {
+	if status == "open" {
+		return "badge badge-success"
+	}
+	if status == "created" {
+		return "badge badge-warning"
+	}
+	return "badge badge-neutral"
+}
+
+func scannerName(scannedBy string) string {
+	if scannedBy == "" {
+		return "-"
+	}
+	return scannedBy
+}
+
+func contentRefreshURL(palletID int64) string {
+	q := url.Values{}
+	q.Set("fragment", "1")
+	return fmt.Sprintf("/tasker/pallets/%d/content-label?%s", palletID, q.Encode())
+}
+
+func contentAutoRefreshExpr(palletID int64) string {
+	return fmt.Sprintf("@get('%s', {openWhenHidden: true})", contentRefreshURL(palletID))
+}
+
+templ PalletContentLabelPage(palletID int64, status string, lines []ContentLine) {
 	<!doctype html>
 	<html data-theme="light">
 		<head>
 			<meta charset="utf-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
-			<title>Pallet { palletID } Content Label</title>
+			<title>Pallet { palletID } Contents</title>
 			<link rel="stylesheet" href="/assets/app.css"/>
+			<script type="module" src={ contentDatastarBundleURL }></script>
 		</head>
 		<body>
-			<main class="container-shell space-y-4">
-				<div class="page-header">
-					<div>
-						<h1 class="text-xl font-bold sm:text-2xl">Pallet { palletID } Content Label</h1>
-						<div class="mt-1">
-							if status == "open" {
-								<span class="badge badge-success">{ status }</span>
-							} else {
-								<span class="badge badge-neutral">{ status }</span>
-							}
-						</div>
-					</div>
-				</div>
-
-				<section class="page-card">
-					<div class="page-card-body">
-						<!-- Desktop table -->
-						<div class="hidden lg:block overflow-x-auto">
-							<table class="table table-zebra">
-								<thead>
-									<tr>
-										<th>SKU</th>
-										<th>Description</th>
-										<th>Qty</th>
-										<th>Batch</th>
-										<th>Expiry</th>
-									</tr>
-								</thead>
-								<tbody>
-									for _, line := range lines {
-										<tr>
-											<td class="font-mono font-semibold">{ line.SKU }</td>
-											<td>{ line.Description }</td>
-											<td class="font-medium">{ line.Qty }</td>
-											<td>{ line.BatchNumber }</td>
-											<td>{ line.ExpiryDateUK }</td>
-										</tr>
-									}
-								</tbody>
-							</table>
-						</div>
-						<!-- Mobile cards -->
-						<div class="grid gap-3 lg:hidden">
-							for _, line := range lines {
-								<div class="card card-border bg-base-100 shadow-sm">
-									<div class="card-body p-4 gap-2">
-										<div class="flex items-start justify-between gap-2">
-											<div class="min-w-0">
-												<div class="font-mono font-bold truncate">{ line.SKU }</div>
-												<div class="text-sm text-base-content/70 truncate">{ line.Description }</div>
-											</div>
-											<span class="badge badge-neutral shrink-0">Qty { line.Qty }</span>
-										</div>
-										<div class="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
-											<div class="text-base-content/60">Batch</div>
-											<div>{ line.BatchNumber }</div>
-											<div class="text-base-content/60">Expiry</div>
-											<div>{ line.ExpiryDateUK }</div>
-										</div>
-									</div>
-								</div>
-							}
-						</div>
-					</div>
-				</section>
-			</main>
+			@PalletContentLabelFragment(palletID, status, lines)
 		</body>
 	</html>
+}
+
+templ PalletContentLabelFragment(palletID int64, status string, lines []ContentLine) {
+	<div
+		id="pallet-content-page"
+		data-signals:lastScrollY="0"
+		data-on:datastar-fetch="evt.detail.type === 'started' && ($lastScrollY = window.scrollY); evt.detail.type === 'finished' && requestAnimationFrame(() => window.scrollTo(0, $lastScrollY));"
+		data-on-interval__duration.3s={ contentAutoRefreshExpr(palletID) }>
+		<main class="container-shell space-y-4">
+			<div class="page-header">
+				<div>
+					<h1 class="text-xl font-bold sm:text-2xl">Pallet { palletID } Contents</h1>
+					<div class="mt-1">
+						<span class={ contentStatusBadge(status) }>{ status }</span>
+					</div>
+				</div>
+				<div class="flex gap-2">
+					<a class="btn btn-soft btn-primary btn-sm" href={ fmt.Sprintf("/tasker/pallets/%d/receipt", palletID) }>Receipt</a>
+					<a class="btn btn-ghost btn-sm" href="/tasker/pallets/progress">Back</a>
+				</div>
+			</div>
+
+			<section class="page-card">
+				<div class="page-card-body">
+					<div class="hidden lg:block overflow-x-auto">
+						<table class="table table-zebra">
+							<thead>
+								<tr>
+									<th>SKU</th>
+									<th>Description</th>
+									<th>Qty</th>
+									<th>Batch</th>
+									<th>Expiry</th>
+									<th>Scanned By</th>
+								</tr>
+							</thead>
+							<tbody>
+								if len(lines) == 0 {
+									<tr>
+										<td colspan="6" class="text-base-content/60">No receipt lines yet.</td>
+									</tr>
+								}
+								for _, line := range lines {
+									<tr>
+										<td class="font-mono font-semibold">{ line.SKU }</td>
+										<td>{ line.Description }</td>
+										<td class="font-medium">{ line.Qty }</td>
+										<td>{ line.BatchNumber }</td>
+										<td>{ line.ExpiryDateUK }</td>
+										<td>{ scannerName(line.ScannedBy) }</td>
+									</tr>
+								}
+							</tbody>
+						</table>
+					</div>
+					<div class="grid gap-3 lg:hidden">
+						for _, line := range lines {
+							<div class="card card-border bg-base-100 shadow-sm">
+								<div class="card-body p-4 gap-2">
+									<div class="flex items-start justify-between gap-2">
+										<div class="min-w-0">
+											<div class="font-mono font-bold truncate">{ line.SKU }</div>
+											<div class="text-sm text-base-content/70 truncate">{ line.Description }</div>
+										</div>
+										<span class="badge badge-neutral shrink-0">Qty { line.Qty }</span>
+									</div>
+									<div class="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+										<div class="text-base-content/60">Batch</div>
+										<div>{ line.BatchNumber }</div>
+										<div class="text-base-content/60">Expiry</div>
+										<div>{ line.ExpiryDateUK }</div>
+										<div class="text-base-content/60">Scanned By</div>
+										<div>{ scannerName(line.ScannedBy) }</div>
+									</div>
+								</div>
+							</div>
+						}
+						if len(lines) == 0 {
+							<div class="alert alert-info">
+								<span>No receipt lines yet.</span>
+							</div>
+						}
+					</div>
+				</div>
+			</section>
+		</main>
+	</div>
 }

@@ -63,23 +63,24 @@ type Pallet struct {
 type PalletReceipt struct {
 	bun.BaseModel `bun:"table:pallet_receipts,alias:pr"`
 
-	ID             int64     `bun:"id,pk,autoincrement"`
-	PalletID       int64     `bun:"pallet_id,notnull"`
-	StockItemID    int64     `bun:"stock_item_id,notnull"`
-	Qty            int64     `bun:"qty,notnull"`
-	Damaged        bool      `bun:"damaged,notnull,default:false"`
-	DamagedQty     int64     `bun:"damaged_qty,notnull,default:0"`
-	BatchNumber    string    `bun:"batch_number"`
-	ExpiryDate     time.Time `bun:"expiry_date,notnull"`
-	CartonBarcode  string    `bun:"carton_barcode"`
-	ItemBarcode    string    `bun:"item_barcode"`
-	StockPhotoBlob []byte    `bun:"stock_photo_blob"`
-	StockPhotoMIME string    `bun:"stock_photo_mime"`
-	StockPhotoName string    `bun:"stock_photo_name"`
-	NoOuterBarcode bool      `bun:"no_outer_barcode,notnull,default:false"`
-	NoInnerBarcode bool      `bun:"no_inner_barcode,notnull,default:false"`
-	CreatedAt      time.Time `bun:"created_at,notnull,default:current_timestamp"`
-	UpdatedAt      time.Time `bun:"updated_at,notnull,default:current_timestamp"`
+	ID              int64     `bun:"id,pk,autoincrement"`
+	PalletID        int64     `bun:"pallet_id,notnull"`
+	StockItemID     int64     `bun:"stock_item_id,notnull"`
+	ScannedByUserID int64     `bun:"scanned_by_user_id,notnull"`
+	Qty             int64     `bun:"qty,notnull"`
+	Damaged         bool      `bun:"damaged,notnull,default:false"`
+	DamagedQty      int64     `bun:"damaged_qty,notnull,default:0"`
+	BatchNumber     string    `bun:"batch_number"`
+	ExpiryDate      time.Time `bun:"expiry_date,notnull"`
+	CartonBarcode   string    `bun:"carton_barcode"`
+	ItemBarcode     string    `bun:"item_barcode"`
+	StockPhotoBlob  []byte    `bun:"stock_photo_blob"`
+	StockPhotoMIME  string    `bun:"stock_photo_mime"`
+	StockPhotoName  string    `bun:"stock_photo_name"`
+	NoOuterBarcode  bool      `bun:"no_outer_barcode,notnull,default:false"`
+	NoInnerBarcode  bool      `bun:"no_inner_barcode,notnull,default:false"`
+	CreatedAt       time.Time `bun:"created_at,notnull,default:current_timestamp"`
+	UpdatedAt       time.Time `bun:"updated_at,notnull,default:current_timestamp"`
 }
 
 // ReceiptPhoto stores individual photos attached to a receipt line.

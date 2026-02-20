@@ -156,7 +156,7 @@ func CreateReceiptCommandHandler(db *sqlite.DB, auditSvc *audit.Service) http.Ha
 }
 
 func CanUserReceiptPallet(palletStatus string, userRoles []string) bool {
-	if palletStatus == "open" {
+	if palletStatus == "created" || palletStatus == "open" {
 		return true
 	}
 	if palletStatus == "closed" {

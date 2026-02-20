@@ -6,4 +6,5 @@ type ContentLine struct {
 	Qty          int64  `bun:"qty"`
 	BatchNumber  string `bun:"batch_number"`
 	ExpiryDateUK string `bun:"expiry_date"`
+	ScannedBy    string `bun:"scanned_by"`
 }

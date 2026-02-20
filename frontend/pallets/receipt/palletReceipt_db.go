@@ -29,48 +29,82 @@ func LoadPageData(ctx context.Context, db *sqlite.DB, palletID int64) (PageData,
 		CartonBarcode  string `bun:"carton_barcode"`
 		ItemBarcode    string `bun:"item_barcode"`
 		HasPhoto       bool   `bun:"has_photo"`
-		PhotoCount     int    `bun:"photo_count"`
 		NoOuterBarcode bool   `bun:"no_outer_barcode"`
 		NoInnerBarcode bool   `bun:"no_inner_barcode"`
 	}
+	photoIDsByReceipt := make(map[int64][]int64)
 
 	err := db.WithReadTx(ctx, func(ctx context.Context, tx bun.Tx) error {
 		if err := tx.NewRaw(`SELECT status FROM pallets WHERE id = ?`, palletID).Scan(ctx, &data.PalletStatus); err != nil {
 			return err
 		}
-		return tx.NewRaw(`
+		if err := tx.NewRaw(`
 SELECT pr.id, si.sku, si.description, pr.qty, pr.damaged, pr.damaged_qty, COALESCE(pr.batch_number, '') AS batch_number,
        strftime('%d/%m/%Y', pr.expiry_date) AS expiry_date,
        COALESCE(pr.carton_barcode, '') AS carton_barcode,
        COALESCE(pr.item_barcode, '') AS item_barcode,
        CASE WHEN pr.stock_photo_blob IS NOT NULL AND length(pr.stock_photo_blob) > 0 THEN 1 ELSE 0 END AS has_photo,
-       (SELECT COUNT(*) FROM receipt_photos rp WHERE rp.pallet_receipt_id = pr.id) AS photo_count,
        pr.no_outer_barcode, pr.no_inner_barcode
 FROM pallet_receipts pr
 JOIN stock_items si ON si.id = pr.stock_item_id
 WHERE pr.pallet_id = ?
-ORDER BY pr.id DESC`, palletID).Scan(ctx, &lines)
+ORDER BY pr.id DESC`, palletID).Scan(ctx, &lines); err != nil {
+			return err
+		}
+
+		if len(lines) == 0 {
+			return nil
+		}
+
+		receiptIDs := make([]int64, 0, len(lines))
+		for _, line := range lines {
+			receiptIDs = append(receiptIDs, line.ID)
+		}
+
+		var photoRows []struct {
+			PalletReceiptID int64 `bun:"pallet_receipt_id"`
+			ID              int64 `bun:"id"`
+		}
+		if err := tx.NewSelect().
+			TableExpr("receipt_photos").
+			Column("pallet_receipt_id", "id").
+			Where("pallet_receipt_id IN (?)", bun.In(receiptIDs)).
+			OrderExpr("pallet_receipt_id ASC, id ASC").
+			Scan(ctx, &photoRows); err != nil {
+			return err
+		}
+
+		for _, row := range photoRows {
+			photoIDsByReceipt[row.PalletReceiptID] = append(photoIDsByReceipt[row.PalletReceiptID], row.ID)
+		}
+
+		return nil
 	})
 	if err != nil {
 		return data, err
 	}
 
 	for _, line := range lines {
+		photoIDs := append([]int64(nil), photoIDsByReceipt[line.ID]...)
+		hasAnyPhoto := line.HasPhoto || len(photoIDs) > 0
+
 		data.Lines = append(data.Lines, ReceiptLineView{
-			ID:             line.ID,
-			SKU:            line.SKU,
-			Description:    line.Description,
-			Qty:            line.Qty,
-			Damaged:        line.Damaged,
-			DamagedQty:     line.DamagedQty,
-			BatchNumber:    line.BatchNumber,
-			ExpiryDateUK:   line.ExpiryDate,
-			CartonBarcode:  line.CartonBarcode,
-			ItemBarcode:    line.ItemBarcode,
-			HasPhoto:       line.HasPhoto || line.PhotoCount > 0,
-			PhotoCount:     line.PhotoCount,
-			NoOuterBarcode: line.NoOuterBarcode,
-			NoInnerBarcode: line.NoInnerBarcode,
+			ID:              line.ID,
+			SKU:             line.SKU,
+			Description:     line.Description,
+			Qty:             line.Qty,
+			Damaged:         line.Damaged,
+			DamagedQty:      line.DamagedQty,
+			BatchNumber:     line.BatchNumber,
+			ExpiryDateUK:    line.ExpiryDate,
+			CartonBarcode:   line.CartonBarcode,
+			ItemBarcode:     line.ItemBarcode,
+			HasPhoto:        hasAnyPhoto,
+			HasPrimaryPhoto: line.HasPhoto,
+			PhotoIDs:        photoIDs,
+			PhotoCount:      len(photoIDs),
+			NoOuterBarcode:  line.NoOuterBarcode,
+			NoInnerBarcode:  line.NoInnerBarcode,
 		})
 	}
 	return data, nil
@@ -102,7 +136,19 @@ func LoadPalletStatus(ctx context.Context, db *sqlite.DB, palletID int64) (strin
 }
 
 func SaveReceipt(ctx context.Context, db *sqlite.DB, auditSvc *audit.Service, userID int64, input ReceiptInput) error {
+	if userID <= 0 {
+		return fmt.Errorf("invalid user id")
+	}
+
 	return db.WithWriteTx(ctx, func(ctx context.Context, tx bun.Tx) error {
+		var palletStatus string
+		if err := tx.NewRaw(`SELECT status FROM pallets WHERE id = ?`, input.PalletID).Scan(ctx, &palletStatus); err != nil {
+			return err
+		}
+		if palletStatus != "created" && palletStatus != "open" && palletStatus != "closed" {
+			return fmt.Errorf("invalid pallet status: %s", palletStatus)
+		}
+
 		var stock models.StockItem
 		err := tx.NewSelect().Model(&stock).Where("sku = ?", input.SKU).Limit(1).Scan(ctx)
 		if err != nil {
@@ -132,6 +178,7 @@ func SaveReceipt(ctx context.Context, db *sqlite.DB, auditSvc *audit.Service, us
 			existing.Qty += input.Qty
 			existing.DamagedQty += input.DamagedQty
 			existing.Damaged = existing.Damaged || input.Damaged || existing.DamagedQty > 0
+			existing.ScannedByUserID = userID
 			if existing.DamagedQty > existing.Qty {
 				return fmt.Errorf("damaged qty cannot exceed qty")
 			}
@@ -152,24 +199,28 @@ func SaveReceipt(ctx context.Context, db *sqlite.DB, auditSvc *audit.Service, us
 			if err := insertReceiptPhotos(ctx, tx, existing.ID, input.Photos); err != nil {
 				return err
 			}
+			if err := promotePalletToOpenIfCreated(ctx, tx, input.PalletID); err != nil {
+				return err
+			}
 			return nil
 		}
 
 		receipt := models.PalletReceipt{
-			PalletID:       input.PalletID,
-			StockItemID:    stock.ID,
-			Qty:            input.Qty,
-			Damaged:        input.Damaged || input.DamagedQty > 0,
-			DamagedQty:     input.DamagedQty,
-			BatchNumber:    input.BatchNumber,
-			ExpiryDate:     input.ExpiryDate,
-			CartonBarcode:  input.CartonBarcode,
-			ItemBarcode:    input.ItemBarcode,
-			StockPhotoBlob: input.StockPhotoBlob,
-			StockPhotoMIME: input.StockPhotoMIME,
-			StockPhotoName: input.StockPhotoName,
-			NoOuterBarcode: input.NoOuterBarcode,
-			NoInnerBarcode: input.NoInnerBarcode,
+			PalletID:        input.PalletID,
+			StockItemID:     stock.ID,
+			ScannedByUserID: userID,
+			Qty:             input.Qty,
+			Damaged:         input.Damaged || input.DamagedQty > 0,
+			DamagedQty:      input.DamagedQty,
+			BatchNumber:     input.BatchNumber,
+			ExpiryDate:      input.ExpiryDate,
+			CartonBarcode:   input.CartonBarcode,
+			ItemBarcode:     input.ItemBarcode,
+			StockPhotoBlob:  input.StockPhotoBlob,
+			StockPhotoMIME:  input.StockPhotoMIME,
+			StockPhotoName:  input.StockPhotoName,
+			NoOuterBarcode:  input.NoOuterBarcode,
+			NoInnerBarcode:  input.NoInnerBarcode,
 		}
 		if receipt.DamagedQty > receipt.Qty {
 			return fmt.Errorf("damaged qty cannot exceed qty")
@@ -185,8 +236,16 @@ func SaveReceipt(ctx context.Context, db *sqlite.DB, auditSvc *audit.Service, us
 		if err := insertReceiptPhotos(ctx, tx, receipt.ID, input.Photos); err != nil {
 			return err
 		}
+		if err := promotePalletToOpenIfCreated(ctx, tx, input.PalletID); err != nil {
+			return err
+		}
 		return nil
 	})
+}
+
+func promotePalletToOpenIfCreated(ctx context.Context, tx bun.Tx, palletID int64) error {
+	_, err := tx.NewRaw(`UPDATE pallets SET status = 'open', reopened_at = NULL WHERE id = ? AND status = 'created'`, palletID).Exec(ctx)
+	return err
 }
 
 func insertReceiptPhotos(ctx context.Context, tx bun.Tx, receiptID int64, photos []PhotoInput) error {

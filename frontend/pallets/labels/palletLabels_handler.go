@@ -74,7 +74,15 @@ func PalletContentLabelPageQueryHandler(db *sqlite.DB) http.HandlerFunc {
 		}
 
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		if err := PalletContentLabel(pallet.ID, pallet.Status, lines).Render(r.Context(), w); err != nil {
+		if r.URL.Query().Get("fragment") == "1" {
+			if err := PalletContentLabelFragment(pallet.ID, pallet.Status, lines).Render(r.Context(), w); err != nil {
+				http.Error(w, "failed to render pallet content label fragment", http.StatusInternalServerError)
+				return
+			}
+			return
+		}
+
+		if err := PalletContentLabelPage(pallet.ID, pallet.Status, lines).Render(r.Context(), w); err != nil {
 			http.Error(w, "failed to render pallet content label", http.StatusInternalServerError)
 			return
 		}

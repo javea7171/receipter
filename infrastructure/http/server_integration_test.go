@@ -196,6 +196,129 @@ func TestCSRFPostWithTokenAccepted(t *testing.T) {
 	loginAs(t, client, env.server.URL, "admin", "Admin123!Receipter")
 }
 
+func TestPalletProgressFragmentRendersMorphTarget(t *testing.T) {
+	env, client := setupIntegrationServer(t)
+	loginAs(t, client, env.server.URL, "admin", "Admin123!Receipter")
+
+	resp := get(t, client, env.server.URL, "/tasker/pallets/progress?fragment=1")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected fragment status 200, got %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read fragment body: %v", err)
+	}
+	_ = resp.Body.Close()
+
+	text := string(body)
+	if !strings.Contains(text, `id="pallet-progress-page"`) {
+		t.Fatalf("expected morph target id in fragment response")
+	}
+	if strings.Contains(strings.ToLower(text), "<!doctype html>") {
+		t.Fatalf("fragment response should not include full html document")
+	}
+}
+
+func TestPalletProgressAdminShowsViewButtonScannerDoesNot(t *testing.T) {
+	env, _ := setupIntegrationServer(t)
+	adminClient := newHTTPClient(t)
+	scannerClient := newHTTPClient(t)
+
+	loginAs(t, adminClient, env.server.URL, "admin", "Admin123!Receipter")
+	resp := postForm(t, adminClient, env.server.URL, "/tasker/pallets/new", nil)
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected new pallet 303, got %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+
+	resp = get(t, adminClient, env.server.URL, "/tasker/pallets/progress")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected admin progress 200, got %d", resp.StatusCode)
+	}
+	adminBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read admin progress body: %v", err)
+	}
+	_ = resp.Body.Close()
+	if !strings.Contains(string(adminBody), `/tasker/pallets/1/content-label`) {
+		t.Fatalf("expected admin progress to include content view link")
+	}
+
+	loginAs(t, scannerClient, env.server.URL, "scanner1", "Scanner123!Receipter")
+	resp = get(t, scannerClient, env.server.URL, "/tasker/pallets/progress")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected scanner progress 200, got %d", resp.StatusCode)
+	}
+	scannerBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read scanner progress body: %v", err)
+	}
+	_ = resp.Body.Close()
+	if strings.Contains(string(scannerBody), `/tasker/pallets/1/content-label`) {
+		t.Fatalf("expected scanner progress to hide content view link")
+	}
+
+	resp = get(t, scannerClient, env.server.URL, "/tasker/pallets/1/content-label")
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected scanner denied on content view with 303, got %d", resp.StatusCode)
+	}
+	if !strings.Contains(resp.Header.Get("Location"), "/login") {
+		t.Fatalf("expected scanner content view redirect to login, got %s", resp.Header.Get("Location"))
+	}
+	_ = resp.Body.Close()
+}
+
+func TestPalletContentLabelFragmentIncludesScannerAndMorphTarget(t *testing.T) {
+	env, _ := setupIntegrationServer(t)
+	scannerClient := newHTTPClient(t)
+	adminClient := newHTTPClient(t)
+
+	loginAs(t, scannerClient, env.server.URL, "scanner1", "Scanner123!Receipter")
+
+	resp := postForm(t, scannerClient, env.server.URL, "/tasker/pallets/new", nil)
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected new pallet 303, got %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+
+	resp = postForm(t, scannerClient, env.server.URL, "/tasker/api/pallets/1/receipts", url.Values{
+		"sku":          {"SKU-VIEW"},
+		"description":  {"View Item"},
+		"qty":          {"2"},
+		"batch_number": {"B1"},
+		"expiry_date":  {"2028-01-01"},
+	})
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected receipt create 303, got %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+
+	loginAs(t, adminClient, env.server.URL, "admin", "Admin123!Receipter")
+	resp = get(t, adminClient, env.server.URL, "/tasker/pallets/1/content-label?fragment=1")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected content fragment status 200, got %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read content fragment body: %v", err)
+	}
+	_ = resp.Body.Close()
+
+	text := string(body)
+	if !strings.Contains(text, `id="pallet-content-page"`) {
+		t.Fatalf("expected content fragment morph target id")
+	}
+	if strings.Contains(strings.ToLower(text), "<!doctype html>") {
+		t.Fatalf("content fragment should not include full html document")
+	}
+	if !strings.Contains(text, "scanner1") {
+		t.Fatalf("expected scanner username in content fragment")
+	}
+	if !strings.Contains(text, "data-on-interval__duration.3s") {
+		t.Fatalf("expected auto-refresh interval in content fragment")
+	}
+}
+
 func TestClosedPalletReceiptPermissions_ScannerDeniedAdminAllowed(t *testing.T) {
 	env, _ := setupIntegrationServer(t)
 	scannerClient := newHTTPClient(t)

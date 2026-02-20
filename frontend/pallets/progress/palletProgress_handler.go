@@ -8,23 +8,46 @@ import (
 
 	sessioncontext "receipter/frontend/shared/context"
 	"receipter/infrastructure/audit"
+	"receipter/infrastructure/rbac"
 	"receipter/infrastructure/sqlite"
 )
 
 // ProgressPageQueryHandler renders pallet progress dashboard.
 func ProgressPageQueryHandler(db *sqlite.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		summary, err := LoadSummary(r.Context(), db)
+		summary, err := LoadSummary(r.Context(), db, r.URL.Query().Get("status"))
 		if err != nil {
 			http.Error(w, "failed to load pallet progress", http.StatusInternalServerError)
 			return
 		}
+		if session, ok := sessioncontext.GetSessionFromContext(r.Context()); ok {
+			summary.CanViewContent = hasRole(session.UserRoles, rbac.RoleAdmin)
+		}
+
+		if r.URL.Query().Get("fragment") == "1" {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			if err := PalletProgressFragment(summary).Render(r.Context(), w); err != nil {
+				http.Error(w, "failed to render pallet progress fragment", http.StatusInternalServerError)
+				return
+			}
+			return
+		}
+
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		if err := PalletProgress(summary).Render(r.Context(), w); err != nil {
 			http.Error(w, "failed to render pallet progress page", http.StatusInternalServerError)
 			return
 		}
 	}
+}
+
+func hasRole(userRoles []string, role string) bool {
+	for _, userRole := range userRoles {
+		if userRole == role {
+			return true
+		}
+	}
+	return false
 }
 
 func ClosePalletCommandHandler(db *sqlite.DB, auditSvc *audit.Service) http.HandlerFunc {
