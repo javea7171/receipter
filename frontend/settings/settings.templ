@@ -7,29 +7,38 @@ templ NotificationSettingsPage(status string) {
 	<html data-theme="light">
 		<head>
 			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
 			<title>Settings</title>
 			<link rel="stylesheet" href="/assets/app.css"/>
 		</head>
 		<body>
+			@sharedhtml.TopBar("Settings")
 			<main class="container-shell">
-				<section class="page-card max-w-xl">
+				<section class="page-card max-w-lg mx-auto">
 					<div class="page-card-body space-y-4">
-						<h1 class="text-2xl font-semibold">Notification Settings</h1>
+						<div>
+							<h1 class="text-xl font-bold">Notification Settings</h1>
+							<p class="text-sm text-base-content/60 mt-1">Manage how you receive notifications</p>
+						</div>
 						if status != "" {
-							<div role="alert" class="alert alert-success">
+							<div role="alert" class="alert alert-success alert-soft">
+								<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="size-5">
+									<path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/>
+								</svg>
 								<span>{ status }</span>
 							</div>
 						}
-						<form method="post" action="/tasker/settings/notifications" class="space-y-3">
+						<form method="post" action="/tasker/settings/notifications" class="space-y-4">
 							<label class="label cursor-pointer justify-start gap-3">
-								<input class="checkbox checkbox-primary" type="checkbox" name="email_enabled" value="1"/>
-								<span class="label-text">Email enabled</span>
+								<input class="checkbox checkbox-primary checkbox-lg" type="checkbox" name="email_enabled" value="1"/>
+								<span class="label-text text-base font-medium">Email notifications enabled</span>
 							</label>
-							<button class="btn btn-primary" type="submit">Save</button>
+							<button class="btn btn-primary btn-lg w-full" type="submit">Save Settings</button>
 						</form>
 					</div>
 				</section>
 			</main>
+			@sharedhtml.Dock(sharedhtml.NavSettings)
 			@templ.Raw(sharedhtml.CSRFFormScript())
 		</body>
 	</html>

@@ -135,6 +135,13 @@ func CreateReceiptCommandHandler(db *sqlite.DB, auditSvc *audit.Service) http.Ha
 			input.StockPhotoName = fileName
 		}
 
+		photos, err := parseOptionalPhotos(r)
+		if err != nil {
+			http.Redirect(w, r, "/tasker/pallets/"+strconv.FormatInt(id, 10)+"/receipt?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+			return
+		}
+		input.Photos = photos
+
 		if input.SKU == "" {
 			http.Redirect(w, r, "/tasker/pallets/"+strconv.FormatInt(id, 10)+"/receipt?error="+url.QueryEscape("sku is required"), http.StatusSeeOther)
 			return
@@ -286,7 +293,103 @@ func parseOptionalPhoto(r *http.Request) (blob []byte, mimeType, fileName string
 
 func parseReceiptForm(r *http.Request) error {
 	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(r.Header.Get("Content-Type"))), "multipart/form-data") {
-		return r.ParseMultipartForm(10 << 20)
+		return r.ParseMultipartForm(50 << 20) // 50MB for multiple photos
 	}
 	return r.ParseForm()
+}
+
+func parseOptionalPhotos(r *http.Request) ([]PhotoInput, error) {
+	if r.MultipartForm == nil {
+		return nil, nil
+	}
+	files := r.MultipartForm.File["stock_photos"]
+	if len(files) == 0 {
+		return nil, nil
+	}
+
+	const maxPhoto = 5 << 20 // 5MB per photo
+	var photos []PhotoInput
+	for _, fh := range files {
+		f, err := fh.Open()
+		if err != nil {
+			return nil, err
+		}
+		data, err := io.ReadAll(io.LimitReader(f, maxPhoto+1))
+		f.Close()
+		if err != nil {
+			return nil, err
+		}
+		if len(data) == 0 {
+			continue
+		}
+		if len(data) > maxPhoto {
+			return nil, errors.New("each photo must be 5MB or less")
+		}
+
+		mimeType := strings.TrimSpace(fh.Header.Get("Content-Type"))
+		if mimeType == "" {
+			mimeType = http.DetectContentType(data)
+		}
+		if !strings.HasPrefix(mimeType, "image/") {
+			return nil, errors.New("photos must be image files")
+		}
+
+		fileName := strings.TrimSpace(fh.Filename)
+		if fileName == "" {
+			exts, _ := mime.ExtensionsByType(mimeType)
+			ext := ""
+			if len(exts) > 0 {
+				ext = exts[0]
+			}
+			fileName = "stock-photo" + ext
+		} else {
+			fileName = filepath.Base(fileName)
+		}
+
+		photos = append(photos, PhotoInput{Blob: data, MIMEType: mimeType, FileName: fileName})
+	}
+	return photos, nil
+}
+
+// ReceiptPhotosHandler serves a photo from the receipt_photos table.
+func ReceiptPhotosHandler(db *sqlite.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		palletID, err := parsePalletID(r)
+		if err != nil {
+			http.Error(w, "invalid pallet id", http.StatusBadRequest)
+			return
+		}
+		receiptID, err := strconv.ParseInt(chi.URLParam(r, "receiptID"), 10, 64)
+		if err != nil || receiptID <= 0 {
+			http.Error(w, "invalid receipt id", http.StatusBadRequest)
+			return
+		}
+		photoID, err := strconv.ParseInt(chi.URLParam(r, "photoID"), 10, 64)
+		if err != nil || photoID <= 0 {
+			http.Error(w, "invalid photo id", http.StatusBadRequest)
+			return
+		}
+
+		blob, mimeType, fileName, err := LoadReceiptPhotoByID(r.Context(), db, palletID, receiptID, photoID)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				http.NotFound(w, r)
+				return
+			}
+			http.Error(w, "failed to load photo", http.StatusInternalServerError)
+			return
+		}
+		if len(blob) == 0 {
+			http.NotFound(w, r)
+			return
+		}
+		if strings.TrimSpace(mimeType) == "" {
+			mimeType = http.DetectContentType(blob)
+		}
+		w.Header().Set("Content-Type", mimeType)
+		if strings.TrimSpace(fileName) != "" {
+			w.Header().Set("Content-Disposition", "inline; filename=\""+fileName+"\"")
+		}
+		_, _ = w.Write(blob)
+	}
 }

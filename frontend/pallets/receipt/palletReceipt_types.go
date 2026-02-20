@@ -2,6 +2,12 @@ package receipt
 
 import "time"
 
+type PhotoInput struct {
+	Blob     []byte
+	MIMEType string
+	FileName string
+}
+
 type ReceiptInput struct {
 	PalletID       int64
 	SKU            string
@@ -16,6 +22,7 @@ type ReceiptInput struct {
 	StockPhotoBlob []byte
 	StockPhotoMIME string
 	StockPhotoName string
+	Photos         []PhotoInput
 	NoOuterBarcode bool
 	NoInnerBarcode bool
 }
@@ -32,6 +39,7 @@ type ReceiptLineView struct {
 	CartonBarcode  string
 	ItemBarcode    string
 	HasPhoto       bool
+	PhotoCount     int
 	NoOuterBarcode bool
 	NoInnerBarcode bool
 }

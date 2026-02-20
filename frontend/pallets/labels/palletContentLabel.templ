@@ -5,30 +5,73 @@ templ PalletContentLabel(palletID int64, status string, lines []ContentLine) {
 	<html data-theme="light">
 		<head>
 			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
 			<title>Pallet { palletID } Content Label</title>
 			<link rel="stylesheet" href="/assets/app.css"/>
 		</head>
 		<body>
-			<main class="container-shell">
+			<main class="container-shell space-y-4">
+				<div class="page-header">
+					<div>
+						<h1 class="text-xl font-bold sm:text-2xl">Pallet { palletID } Content Label</h1>
+						<div class="mt-1">
+							if status == "open" {
+								<span class="badge badge-success">{ status }</span>
+							} else {
+								<span class="badge badge-neutral">{ status }</span>
+							}
+						</div>
+					</div>
+				</div>
+
 				<section class="page-card">
-					<div class="page-card-body space-y-4">
-						<h1 class="text-2xl font-semibold">Pallet { palletID } Content Label</h1>
-						<p class="text-sm opacity-70">Status: <span class="badge badge-outline">{ status }</span></p>
-						<div class="overflow-x-auto">
+					<div class="page-card-body">
+						<!-- Desktop table -->
+						<div class="hidden lg:block overflow-x-auto">
 							<table class="table table-zebra">
-								<thead><tr><th>SKU</th><th>Description</th><th>Qty</th><th>Batch</th><th>Expiry</th></tr></thead>
+								<thead>
+									<tr>
+										<th>SKU</th>
+										<th>Description</th>
+										<th>Qty</th>
+										<th>Batch</th>
+										<th>Expiry</th>
+									</tr>
+								</thead>
 								<tbody>
 									for _, line := range lines {
 										<tr>
-											<td class="font-mono">{ line.SKU }</td>
+											<td class="font-mono font-semibold">{ line.SKU }</td>
 											<td>{ line.Description }</td>
-											<td>{ line.Qty }</td>
+											<td class="font-medium">{ line.Qty }</td>
 											<td>{ line.BatchNumber }</td>
 											<td>{ line.ExpiryDateUK }</td>
 										</tr>
 									}
 								</tbody>
 							</table>
+						</div>
+						<!-- Mobile cards -->
+						<div class="grid gap-3 lg:hidden">
+							for _, line := range lines {
+								<div class="card card-border bg-base-100 shadow-sm">
+									<div class="card-body p-4 gap-2">
+										<div class="flex items-start justify-between gap-2">
+											<div class="min-w-0">
+												<div class="font-mono font-bold truncate">{ line.SKU }</div>
+												<div class="text-sm text-base-content/70 truncate">{ line.Description }</div>
+											</div>
+											<span class="badge badge-neutral shrink-0">Qty { line.Qty }</span>
+										</div>
+										<div class="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+											<div class="text-base-content/60">Batch</div>
+											<div>{ line.BatchNumber }</div>
+											<div class="text-base-content/60">Expiry</div>
+											<div>{ line.ExpiryDateUK }</div>
+										</div>
+									</div>
+								</div>
+							}
 						</div>
 					</div>
 				</section>

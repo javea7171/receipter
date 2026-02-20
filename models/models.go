@@ -82,6 +82,18 @@ type PalletReceipt struct {
 	UpdatedAt      time.Time `bun:"updated_at,notnull,default:current_timestamp"`
 }
 
+// ReceiptPhoto stores individual photos attached to a receipt line.
+type ReceiptPhoto struct {
+	bun.BaseModel `bun:"table:receipt_photos,alias:rp"`
+
+	ID              int64     `bun:"id,pk,autoincrement"`
+	PalletReceiptID int64     `bun:"pallet_receipt_id,notnull"`
+	PhotoBlob       []byte    `bun:"photo_blob,notnull"`
+	PhotoMIME       string    `bun:"photo_mime,notnull,default:'image/jpeg'"`
+	PhotoName       string    `bun:"photo_name,notnull,default:'photo.jpg'"`
+	CreatedAt       time.Time `bun:"created_at,notnull,default:current_timestamp"`
+}
+
 // AuditLog captures immutable change history for key operations.
 type AuditLog struct {
 	bun.BaseModel `bun:"table:audit_logs,alias:al"`

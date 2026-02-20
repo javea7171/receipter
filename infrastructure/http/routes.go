@@ -69,6 +69,9 @@ func (s *Server) RegisterPalletRoutes(r chi.Router) {
 	s.Rbac.Add(rbac.RoleScanner, "PALLET_RECEIPT_PHOTO_VIEW", http.MethodGet, "/tasker/api/pallets/*/receipts/*/photo")
 	r.Get("/api/pallets/{id}/receipts/{receiptID}/photo", palletreceipt.ReceiptPhotoQueryHandler(s.DB))
 
+	s.Rbac.Add(rbac.RoleScanner, "PALLET_RECEIPT_PHOTOS_VIEW", http.MethodGet, "/tasker/api/pallets/*/receipts/*/photos/*")
+	r.Get("/api/pallets/{id}/receipts/{receiptID}/photos/{photoID}", palletreceipt.ReceiptPhotosHandler(s.DB))
+
 	s.Rbac.Add(rbac.RoleScanner, "PALLET_CLOSE", http.MethodPost, "/tasker/api/pallets/*/close")
 	r.Post("/api/pallets/{id}/close", palletprogress.ClosePalletCommandHandler(s.DB, s.Audit))
 

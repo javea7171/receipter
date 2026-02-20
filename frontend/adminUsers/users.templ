@@ -1,42 +1,69 @@
 package adminusers
 
+import sharedhtml "receipter/frontend/shared/html"
+
 templ UsersListPage(users []UserView, status string, errorMessage string) {
 	<!doctype html>
 	<html data-theme="light">
 		<head>
 			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
 			<title>Admin Users</title>
 			<link rel="stylesheet" href="/assets/app.css"/>
 		</head>
 		<body>
-			<main class="container-shell">
+			@sharedhtml.TopBar("Admin Users")
+			<main class="container-shell space-y-4">
+				<div class="page-header">
+					<div>
+						<h1 class="text-xl font-bold sm:text-2xl">Admin Users</h1>
+						<p class="text-sm text-base-content/60">Manage system users and roles</p>
+					</div>
+				</div>
+
+				if status != "" || errorMessage != "" {
+					if errorMessage != "" {
+						<div role="alert" class="alert alert-error alert-soft"><span>{ status } { errorMessage }</span></div>
+					} else {
+						<div role="alert" class="alert alert-info alert-soft"><span>{ status }</span></div>
+					}
+				}
+
 				<section class="page-card">
-					<div class="page-card-body space-y-4">
-						<h1 class="text-2xl font-semibold">Admin Users</h1>
-						if status != "" || errorMessage != "" {
-							if errorMessage != "" {
-								<div role="alert" class="alert alert-error"><span>{ status } { errorMessage }</span></div>
-							} else {
-								<div role="alert" class="alert alert-info"><span>{ status }</span></div>
-							}
-						}
-						<div class="overflow-x-auto">
+					<div class="page-card-body">
+						<!-- Desktop table -->
+						<div class="hidden lg:block overflow-x-auto">
 							<table class="table table-zebra">
 								<thead><tr><th>ID</th><th>Username</th><th>Role</th></tr></thead>
 								<tbody>
 									for _, user := range users {
 										<tr>
 											<td class="font-mono">{ user.ID }</td>
-											<td>{ user.Username }</td>
-											<td><span class="badge badge-outline">{ user.Role }</span></td>
+											<td class="font-medium">{ user.Username }</td>
+											<td><span class="badge badge-soft badge-primary">{ user.Role }</span></td>
 										</tr>
 									}
 								</tbody>
 							</table>
 						</div>
+						<!-- Mobile cards -->
+						<div class="grid gap-3 lg:hidden">
+							for _, user := range users {
+								<div class="card card-border bg-base-100 shadow-sm">
+									<div class="card-body p-4 gap-1">
+										<div class="flex items-center justify-between">
+											<span class="font-medium text-base">{ user.Username }</span>
+											<span class="badge badge-soft badge-primary">{ user.Role }</span>
+										</div>
+										<span class="text-sm text-base-content/50 font-mono">ID: { user.ID }</span>
+									</div>
+								</div>
+							}
+						</div>
 					</div>
 				</section>
 			</main>
+			@sharedhtml.Dock(sharedhtml.NavNone)
 		</body>
 	</html>
 }

@@ -7,29 +7,40 @@ templ StockImportPage(message string) {
 	<html data-theme="light">
 		<head>
 			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
 			<title>Stock Import</title>
 			<link rel="stylesheet" href="/assets/app.css"/>
 		</head>
 		<body>
+			@sharedhtml.TopBar("Stock Import")
 			<main class="container-shell">
-				<section class="page-card max-w-2xl">
+				<section class="page-card max-w-lg mx-auto">
 					<div class="page-card-body space-y-4">
-						<h1 class="text-2xl font-semibold">Stock Import</h1>
+						<div>
+							<h1 class="text-xl font-bold">Stock Import</h1>
+							<p class="text-sm text-base-content/60 mt-1">Upload a CSV file to import stock data</p>
+						</div>
 						if message != "" {
-							<div role="alert" class="alert alert-info">
+							<div role="alert" class="alert alert-info alert-soft">
 								<span>{ message }</span>
 							</div>
 						}
-						<form method="post" action="/tasker/stock/import" enctype="multipart/form-data" class="space-y-3">
-							<label class="form-control w-full">
-								<span class="label-text">CSV file</span>
-								<input class="file-input file-input-bordered w-full" type="file" name="file" accept=".csv"/>
-							</label>
-							<button class="btn btn-primary" type="submit">Import CSV</button>
+						<form method="post" action="/tasker/stock/import" enctype="multipart/form-data" class="space-y-4">
+							<fieldset class="fieldset w-full">
+								<legend class="fieldset-legend text-base font-medium">CSV file</legend>
+								<input class="file-input file-input-bordered file-input-lg w-full" type="file" name="file" accept=".csv"/>
+							</fieldset>
+							<button class="btn btn-primary btn-lg w-full" type="submit">
+								<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="size-5">
+									<path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5"/>
+								</svg>
+								Import CSV
+							</button>
 						</form>
 					</div>
 				</section>
 			</main>
+			@sharedhtml.Dock(sharedhtml.NavNone)
 			@templ.Raw(sharedhtml.CSRFFormScript())
 		</body>
 	</html>

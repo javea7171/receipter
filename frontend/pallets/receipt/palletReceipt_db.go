@@ -29,6 +29,7 @@ func LoadPageData(ctx context.Context, db *sqlite.DB, palletID int64) (PageData,
 		CartonBarcode  string `bun:"carton_barcode"`
 		ItemBarcode    string `bun:"item_barcode"`
 		HasPhoto       bool   `bun:"has_photo"`
+		PhotoCount     int    `bun:"photo_count"`
 		NoOuterBarcode bool   `bun:"no_outer_barcode"`
 		NoInnerBarcode bool   `bun:"no_inner_barcode"`
 	}
@@ -43,6 +44,7 @@ SELECT pr.id, si.sku, si.description, pr.qty, pr.damaged, pr.damaged_qty, COALES
        COALESCE(pr.carton_barcode, '') AS carton_barcode,
        COALESCE(pr.item_barcode, '') AS item_barcode,
        CASE WHEN pr.stock_photo_blob IS NOT NULL AND length(pr.stock_photo_blob) > 0 THEN 1 ELSE 0 END AS has_photo,
+       (SELECT COUNT(*) FROM receipt_photos rp WHERE rp.pallet_receipt_id = pr.id) AS photo_count,
        pr.no_outer_barcode, pr.no_inner_barcode
 FROM pallet_receipts pr
 JOIN stock_items si ON si.id = pr.stock_item_id
@@ -65,7 +67,8 @@ ORDER BY pr.id DESC`, palletID).Scan(ctx, &lines)
 			ExpiryDateUK:   line.ExpiryDate,
 			CartonBarcode:  line.CartonBarcode,
 			ItemBarcode:    line.ItemBarcode,
-			HasPhoto:       line.HasPhoto,
+			HasPhoto:       line.HasPhoto || line.PhotoCount > 0,
+			PhotoCount:     line.PhotoCount,
 			NoOuterBarcode: line.NoOuterBarcode,
 			NoInnerBarcode: line.NoInnerBarcode,
 		})
@@ -146,6 +149,9 @@ func SaveReceipt(ctx context.Context, db *sqlite.DB, auditSvc *audit.Service, us
 					return err
 				}
 			}
+			if err := insertReceiptPhotos(ctx, tx, existing.ID, input.Photos); err != nil {
+				return err
+			}
 			return nil
 		}
 
@@ -176,8 +182,26 @@ func SaveReceipt(ctx context.Context, db *sqlite.DB, auditSvc *audit.Service, us
 				return err
 			}
 		}
+		if err := insertReceiptPhotos(ctx, tx, receipt.ID, input.Photos); err != nil {
+			return err
+		}
 		return nil
 	})
+}
+
+func insertReceiptPhotos(ctx context.Context, tx bun.Tx, receiptID int64, photos []PhotoInput) error {
+	for _, p := range photos {
+		photo := models.ReceiptPhoto{
+			PalletReceiptID: receiptID,
+			PhotoBlob:       p.Blob,
+			PhotoMIME:       p.MIMEType,
+			PhotoName:       p.FileName,
+		}
+		if _, err := tx.NewInsert().Model(&photo).Exec(ctx); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func LoadReceiptPhoto(ctx context.Context, db *sqlite.DB, palletID, receiptID int64) (blob []byte, mimeType, fileName string, err error) {
@@ -199,4 +223,36 @@ WHERE id = ? AND pallet_id = ?`, receiptID, palletID).Scan(ctx, &blob, &mimeValu
 		fileName = fileValue.String
 	}
 	return blob, mimeType, fileName, nil
+}
+
+// LoadReceiptPhotoByID loads a single photo from the receipt_photos table, verifying it belongs to the correct pallet.
+func LoadReceiptPhotoByID(ctx context.Context, db *sqlite.DB, palletID, receiptID, photoID int64) (blob []byte, mimeType, fileName string, err error) {
+	var mimeVal sql.NullString
+	var fileVal sql.NullString
+	err = db.WithReadTx(ctx, func(ctx context.Context, tx bun.Tx) error {
+		return tx.NewRaw(`
+SELECT rp.photo_blob, rp.photo_mime, rp.photo_name
+FROM receipt_photos rp
+JOIN pallet_receipts pr ON pr.id = rp.pallet_receipt_id
+WHERE rp.id = ? AND rp.pallet_receipt_id = ? AND pr.pallet_id = ?`, photoID, receiptID, palletID).Scan(ctx, &blob, &mimeVal, &fileVal)
+	})
+	if err != nil {
+		return nil, "", "", err
+	}
+	if mimeVal.Valid {
+		mimeType = mimeVal.String
+	}
+	if fileVal.Valid {
+		fileName = fileVal.String
+	}
+	return blob, mimeType, fileName, nil
+}
+
+// LoadReceiptPhotoIDs returns the photo IDs for a given receipt line.
+func LoadReceiptPhotoIDs(ctx context.Context, db *sqlite.DB, receiptID int64) ([]int64, error) {
+	var ids []int64
+	err := db.WithReadTx(ctx, func(ctx context.Context, tx bun.Tx) error {
+		return tx.NewRaw(`SELECT id FROM receipt_photos WHERE pallet_receipt_id = ? ORDER BY id`, receiptID).Scan(ctx, &ids)
+	})
+	return ids, err
 }
