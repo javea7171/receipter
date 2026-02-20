@@ -1,0 +1,17 @@
+{
+  "name": "receipter",
+  "version": "1.0.0",
+  "description": "Receipter frontend styling pipeline",
+  "private": true,
+  "scripts": {
+    "build:css": "tailwindcss -i ./frontend/styles/app.css -o ./infrastructure/http/assets/app.css --minify",
+    "build:css:dev": "tailwindcss -i ./frontend/styles/app.css -o ./infrastructure/http/assets/app.css",
+    "watch:css": "tailwindcss -i ./frontend/styles/app.css -o ./infrastructure/http/assets/app.css --watch"
+  },
+  "type": "commonjs",
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.2.0",
+    "daisyui": "^5.5.18",
+    "tailwindcss": "^4.2.0"
+  }
+}

@@ -1,0 +1,38 @@
+package labels
+
+templ PalletContentLabel(palletID int64, status string, lines []ContentLine) {
+	<!doctype html>
+	<html data-theme="light">
+		<head>
+			<meta charset="utf-8"/>
+			<title>Pallet { palletID } Content Label</title>
+			<link rel="stylesheet" href="/assets/app.css"/>
+		</head>
+		<body>
+			<main class="container-shell">
+				<section class="page-card">
+					<div class="page-card-body space-y-4">
+						<h1 class="text-2xl font-semibold">Pallet { palletID } Content Label</h1>
+						<p class="text-sm opacity-70">Status: <span class="badge badge-outline">{ status }</span></p>
+						<div class="overflow-x-auto">
+							<table class="table table-zebra">
+								<thead><tr><th>SKU</th><th>Description</th><th>Qty</th><th>Batch</th><th>Expiry</th></tr></thead>
+								<tbody>
+									for _, line := range lines {
+										<tr>
+											<td class="font-mono">{ line.SKU }</td>
+											<td>{ line.Description }</td>
+											<td>{ line.Qty }</td>
+											<td>{ line.BatchNumber }</td>
+											<td>{ line.ExpiryDateUK }</td>
+										</tr>
+									}
+								</tbody>
+							</table>
+						</div>
+					</div>
+				</section>
+			</main>
+		</body>
+	</html>
+}

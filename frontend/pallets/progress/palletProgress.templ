@@ -1,0 +1,87 @@
+package progress
+
+import (
+	"fmt"
+	sharedhtml "receipter/frontend/shared/html"
+)
+
+templ PalletProgress(summary Summary) {
+	<!doctype html>
+	<html data-theme="light">
+		<head>
+			<meta charset="utf-8"/>
+			<title>Pallet Progress</title>
+			<link rel="stylesheet" href="/assets/app.css"/>
+		</head>
+		<body>
+			<main class="container-shell space-y-6">
+				<section class="page-card">
+					<div class="page-card-body">
+						<div class="flex flex-wrap items-center justify-between gap-3">
+							<div>
+								<h1 class="text-2xl font-semibold">Pallet Progress</h1>
+								<p class="text-sm opacity-70">Track open/closed lifecycle and receipts.</p>
+							</div>
+							<form method="post" action="/tasker/pallets/new" target="_blank">
+								<button class="btn btn-primary" type="submit">Create Pallet</button>
+							</form>
+						</div>
+					</div>
+				</section>
+
+				<section class="grid gap-4 md:grid-cols-2">
+					<div class="stats shadow page-card">
+						<div class="stat">
+							<div class="stat-title">Open Pallets</div>
+							<div class="stat-value text-primary">{ summary.OpenCount }</div>
+						</div>
+					</div>
+					<div class="stats shadow page-card">
+						<div class="stat">
+							<div class="stat-title">Closed Pallets</div>
+							<div class="stat-value">{ summary.ClosedCount }</div>
+						</div>
+					</div>
+				</section>
+
+				<section class="page-card">
+					<div class="page-card-body space-y-3">
+						<h2 class="text-xl font-semibold">All Pallets</h2>
+						<div class="overflow-x-auto">
+							<table class="table table-zebra">
+								<thead>
+									<tr><th>ID</th><th>Status</th><th>Lines</th><th>Created</th><th>Closed</th><th>Reopened</th><th>Receipt</th><th>Action</th></tr>
+								</thead>
+								<tbody>
+									for _, p := range summary.Pallets {
+										<tr>
+											<td class="font-mono">{ p.ID }</td>
+											<td><span class="badge badge-outline">{ p.Status }</span></td>
+											<td>{ p.LineCount }</td>
+											<td>{ p.CreatedAt }</td>
+											<td>{ p.ClosedAt }</td>
+											<td>{ p.ReopenedAt }</td>
+											<td><a class="link link-primary" href={ fmt.Sprintf("/tasker/pallets/%d/receipt", p.ID) }>Receipt</a></td>
+											<td>
+												if p.CanClose {
+													<form method="post" action={ fmt.Sprintf("/tasker/api/pallets/%d/close", p.ID) }>
+														<button class="btn btn-warning btn-sm" type="submit">Close</button>
+													</form>
+												} else if p.CanReopen {
+													<form method="post" action={ fmt.Sprintf("/tasker/api/pallets/%d/reopen", p.ID) }>
+														<button class="btn btn-success btn-sm" type="submit">Reopen</button>
+													</form>
+												}
+											</td>
+										</tr>
+									}
+								</tbody>
+							</table>
+						</div>
+					</div>
+				</section>
+			</main>
+			@templ.Raw(sharedhtml.CSRFFormScript())
+		</body>
+	</html>
+}

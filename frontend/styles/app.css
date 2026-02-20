@@ -1,0 +1,64 @@
+@import "tailwindcss";
+@source "../**/*.go";
+@source "../**/*.templ";
+
+@plugin "daisyui" {
+  themes: light --default;
+}
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  min-height: 100vh;
+  color: var(--color-base-content);
+  background-color: var(--color-base-200);
+  background-image: radial-gradient(circle at 15% 0%, #fff8d9 0%, transparent 45%),
+    radial-gradient(circle at 95% 5%, #d8eef8 0%, transparent 40%);
+}
+
+.container-shell {
+  margin-inline: auto;
+  width: min(100%, 84rem);
+  padding: 1rem;
+}
+
+.page-card {
+  border: 1px solid color-mix(in oklab, var(--color-base-content) 12%, transparent);
+  border-radius: 1rem;
+  background: color-mix(in oklab, var(--color-base-100) 92%, white 8%);
+  box-shadow: 0 20px 40px -26px color-mix(in oklab, var(--color-neutral) 55%, transparent);
+}
+
+.page-card-body {
+  padding: 1rem;
+}
+
+@media (min-width: 768px) {
+  .container-shell {
+    padding: 2rem;
+  }
+
+  .page-card-body {
+    padding: 1.5rem;
+  }
+}
+
+.label-a4-landscape main {
+  margin-inline: auto;
+  width: min(100%, 58rem);
+  padding: 2rem;
+  border: 1px solid color-mix(in oklab, var(--color-base-content) 20%, transparent);
+  border-radius: 1rem;
+  background: var(--color-base-100);
+}
+
+.barcode {
+  margin: 1rem 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: clamp(1.15rem, 4vw, 2.1rem);
+  font-weight: 700;
+  letter-spacing: 0.45em;
+  line-height: 1.25;
+}

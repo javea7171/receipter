@@ -1,0 +1,36 @@
+package settings
+
+import sharedhtml "receipter/frontend/shared/html"
+
+templ NotificationSettingsPage(status string) {
+	<!doctype html>
+	<html data-theme="light">
+		<head>
+			<meta charset="utf-8"/>
+			<title>Settings</title>
+			<link rel="stylesheet" href="/assets/app.css"/>
+		</head>
+		<body>
+			<main class="container-shell">
+				<section class="page-card max-w-xl">
+					<div class="page-card-body space-y-4">
+						<h1 class="text-2xl font-semibold">Notification Settings</h1>
+						if status != "" {
+							<div role="alert" class="alert alert-success">
+								<span>{ status }</span>
+							</div>
+						}
+						<form method="post" action="/tasker/settings/notifications" class="space-y-3">
+							<label class="label cursor-pointer justify-start gap-3">
+								<input class="checkbox checkbox-primary" type="checkbox" name="email_enabled" value="1"/>
+								<span class="label-text">Email enabled</span>
+							</label>
+							<button class="btn btn-primary" type="submit">Save</button>
+						</form>
+					</div>
+				</section>
+			</main>
+			@templ.Raw(sharedhtml.CSRFFormScript())
+		</body>
+	</html>
+}

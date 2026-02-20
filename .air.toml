@@ -1,0 +1,26 @@
+root = "."
+tmp_dir = "tmp"
+
+[build]
+pre_cmd = ["if command -v npm >/dev/null 2>&1 && [ -f package.json ]; then if [ ! -f infrastructure/http/assets/app.css ] || [ frontend/styles/app.css -nt infrastructure/http/assets/app.css ] || find frontend -name '*.templ' -newer infrastructure/http/assets/app.css | grep -q .; then npm run build:css:dev; fi; fi", "if command -v templ >/dev/null 2>&1; then templ generate -path . -lazy; else go run github.com/a-h/templ/cmd/templ@latest generate -path . -lazy; fi"]
+cmd = "GOCACHE=$(pwd)/.gocache go build -o ./tmp/receipter ./cmd/receipter"
+entrypoint = ["./tmp/receipter"]
+include_ext = ["go", "templ", "css", "js", "sql"]
+exclude_dir = [".gocache", "node_modules", "tmp", "cmd/receipter/logs"]
+exclude_file = ["infrastructure/http/assets/app.css"]
+exclude_regex = ["_test\\.go", "_templ\\.go"]
+exclude_unchanged = true
+delay = 300
+stop_on_error = true
+send_interrupt = true
+kill_delay = "2s"
+log = "tmp/air-build-errors.log"
+
+[log]
+time = true
+
+[screen]
+clear_on_rebuild = true
+
+[misc]
+clean_on_exit = true

@@ -1,0 +1,13 @@
+package html
+
+templ Layout(title string) {
+    <html>
+        <head>
+            <title>{ title }</title>
+            <link rel="stylesheet" href="/assets/app.css" />
+        </head>
+        <body>
+            { children... }
+        </body>
+    </html>
+}

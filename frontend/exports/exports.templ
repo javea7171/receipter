@@ -1,0 +1,25 @@
+package exports
+
+templ ExportsPage() {
+	<!doctype html>
+	<html data-theme="light">
+		<head>
+			<meta charset="utf-8"/>
+			<title>Exports</title>
+			<link rel="stylesheet" href="/assets/app.css"/>
+		</head>
+		<body>
+			<main class="container-shell">
+				<section class="page-card max-w-2xl">
+					<div class="page-card-body space-y-4">
+						<h1 class="text-2xl font-semibold">Exports</h1>
+						<div class="join join-vertical w-full">
+							<a class="btn btn-outline join-item justify-start" href="/tasker/exports/receipts.csv">Bulk Receipts CSV</a>
+							<a class="btn btn-outline join-item justify-start" href="/tasker/exports/pallet-status.csv">Pallet Status CSV</a>
+						</div>
+					</div>
+				</section>
+			</main>
+		</body>
+	</html>
+}

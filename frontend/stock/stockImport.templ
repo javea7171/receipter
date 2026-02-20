@@ -1,0 +1,36 @@
+package stock
+
+import sharedhtml "receipter/frontend/shared/html"
+
+templ StockImportPage(message string) {
+	<!doctype html>
+	<html data-theme="light">
+		<head>
+			<meta charset="utf-8"/>
+			<title>Stock Import</title>
+			<link rel="stylesheet" href="/assets/app.css"/>
+		</head>
+		<body>
+			<main class="container-shell">
+				<section class="page-card max-w-2xl">
+					<div class="page-card-body space-y-4">
+						<h1 class="text-2xl font-semibold">Stock Import</h1>
+						if message != "" {
+							<div role="alert" class="alert alert-info">
+								<span>{ message }</span>
+							</div>
+						}
+						<form method="post" action="/tasker/stock/import" enctype="multipart/form-data" class="space-y-3">
+							<label class="form-control w-full">
+								<span class="label-text">CSV file</span>
+								<input class="file-input file-input-bordered w-full" type="file" name="file" accept=".csv"/>
+							</label>
+							<button class="btn btn-primary" type="submit">Import CSV</button>
+						</form>
+					</div>
+				</section>
+			</main>
+			@templ.Raw(sharedhtml.CSRFFormScript())
+		</body>
+	</html>
+}

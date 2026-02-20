@@ -1,0 +1,126 @@
+package exports
+
+import (
+	"context"
+	"encoding/csv"
+	"io"
+	"strconv"
+
+	"github.com/uptrace/bun"
+
+	"receipter/infrastructure/sqlite"
+)
+
+func writeReceiptCSV(ctx context.Context, db *sqlite.DB, w io.Writer, palletID *int64) error {
+	writer := csv.NewWriter(w)
+	defer writer.Flush()
+
+	header := []string{"pallet_id", "sku", "description", "qty", "item_barcode", "carton_barcode", "expiry", "batch_number"}
+	if err := writer.Write(header); err != nil {
+		return err
+	}
+
+	type row struct {
+		PalletID      int64  `bun:"pallet_id"`
+		SKU           string `bun:"sku"`
+		Description   string `bun:"description"`
+		Qty           int64  `bun:"qty"`
+		ItemBarcode   string `bun:"item_barcode"`
+		CartonBarcode string `bun:"carton_barcode"`
+		Expiry        string `bun:"expiry"`
+		BatchNumber   string `bun:"batch_number"`
+	}
+
+	rows := make([]row, 0)
+	err := db.WithReadTx(ctx, func(ctx context.Context, tx bun.Tx) error {
+		q := `
+SELECT pr.pallet_id, si.sku, si.description, pr.qty,
+       COALESCE(pr.item_barcode, '') AS item_barcode,
+       COALESCE(pr.carton_barcode, '') AS carton_barcode,
+       strftime('%d/%m/%Y', pr.expiry_date) AS expiry,
+       COALESCE(pr.batch_number, '') AS batch_number
+FROM pallet_receipts pr
+JOIN stock_items si ON si.id = pr.stock_item_id`
+		args := make([]any, 0)
+		if palletID != nil {
+			q += " WHERE pr.pallet_id = ?"
+			args = append(args, *palletID)
+		}
+		q += " ORDER BY pr.pallet_id ASC, si.sku ASC"
+		return tx.NewRaw(q, args...).Scan(ctx, &rows)
+	})
+	if err != nil {
+		return err
+	}
+
+	for _, r := range rows {
+		record := []string{
+			toString(r.PalletID),
+			r.SKU,
+			r.Description,
+			toString(r.Qty),
+			r.ItemBarcode,
+			r.CartonBarcode,
+			r.Expiry,
+			r.BatchNumber,
+		}
+		if err := writer.Write(record); err != nil {
+			return err
+		}
+	}
+	return writer.Error()
+}
+
+func writePalletStatusCSV(ctx context.Context, db *sqlite.DB, w io.Writer) error {
+	writer := csv.NewWriter(w)
+	defer writer.Flush()
+	if err := writer.Write([]string{"pallet_id", "status", "line_count", "created_at", "closed_at", "reopened_at"}); err != nil {
+		return err
+	}
+
+	type row struct {
+		ID         int64  `bun:"id"`
+		Status     string `bun:"status"`
+		LineCount  int64  `bun:"line_count"`
+		CreatedAt  string `bun:"created_at"`
+		ClosedAt   string `bun:"closed_at"`
+		ReopenedAt string `bun:"reopened_at"`
+	}
+
+	rows := make([]row, 0)
+	err := db.WithReadTx(ctx, func(ctx context.Context, tx bun.Tx) error {
+		return tx.NewRaw(`
+SELECT p.id, p.status,
+       (SELECT COUNT(*) FROM pallet_receipts pr WHERE pr.pallet_id = p.id) AS line_count,
+       strftime('%d/%m/%Y %H:%M', p.created_at) AS created_at,
+       COALESCE(strftime('%d/%m/%Y %H:%M', p.closed_at), '') AS closed_at,
+       COALESCE(strftime('%d/%m/%Y %H:%M', p.reopened_at), '') AS reopened_at
+FROM pallets p
+ORDER BY p.id ASC`).Scan(ctx, &rows)
+	})
+	if err != nil {
+		return err
+	}
+
+	for _, r := range rows {
+		if err := writer.Write([]string{toString(r.ID), r.Status, toString(r.LineCount), r.CreatedAt, r.ClosedAt, r.ReopenedAt}); err != nil {
+			return err
+		}
+	}
+	return writer.Error()
+}
+
+func recordExportRun(ctx context.Context, db *sqlite.DB, userID *int64, exportType string) error {
+	return db.WithWriteTx(ctx, func(ctx context.Context, tx bun.Tx) error {
+		if userID == nil {
+			_, err := tx.ExecContext(ctx, `INSERT INTO export_runs (user_id, export_type, created_at) VALUES (NULL, ?, CURRENT_TIMESTAMP)`, exportType)
+			return err
+		}
+		_, err := tx.ExecContext(ctx, `INSERT INTO export_runs (user_id, export_type, created_at) VALUES (?, ?, CURRENT_TIMESTAMP)`, *userID, exportType)
+		return err
+	})
+}
+
+func exportTypePallet(palletID int64) string {
+	return "pallet_csv:" + strconv.FormatInt(palletID, 10)
+}

@@ -1,0 +1,42 @@
+package adminusers
+
+templ UsersListPage(users []UserView, status string, errorMessage string) {
+	<!doctype html>
+	<html data-theme="light">
+		<head>
+			<meta charset="utf-8"/>
+			<title>Admin Users</title>
+			<link rel="stylesheet" href="/assets/app.css"/>
+		</head>
+		<body>
+			<main class="container-shell">
+				<section class="page-card">
+					<div class="page-card-body space-y-4">
+						<h1 class="text-2xl font-semibold">Admin Users</h1>
+						if status != "" || errorMessage != "" {
+							if errorMessage != "" {
+								<div role="alert" class="alert alert-error"><span>{ status } { errorMessage }</span></div>
+							} else {
+								<div role="alert" class="alert alert-info"><span>{ status }</span></div>
+							}
+						}
+						<div class="overflow-x-auto">
+							<table class="table table-zebra">
+								<thead><tr><th>ID</th><th>Username</th><th>Role</th></tr></thead>
+								<tbody>
+									for _, user := range users {
+										<tr>
+											<td class="font-mono">{ user.ID }</td>
+											<td>{ user.Username }</td>
+											<td><span class="badge badge-outline">{ user.Role }</span></td>
+										</tr>
+									}
+								</tbody>
+							</table>
+						</div>
+					</div>
+				</section>
+			</main>
+		</body>
+	</html>
+}
