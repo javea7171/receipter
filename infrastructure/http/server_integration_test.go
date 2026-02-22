@@ -196,6 +196,33 @@ func TestCSRFPostWithTokenAccepted(t *testing.T) {
 	loginAs(t, client, env.server.URL, "admin", "Admin123!Receipter")
 }
 
+func TestScanPalletPageIncludesScannerModalHook(t *testing.T) {
+	env, client := setupIntegrationServer(t)
+	loginAs(t, client, env.server.URL, "scanner1", "Scanner123!Receipter")
+
+	resp := get(t, client, env.server.URL, "/tasker/scan/pallet")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected scan pallet page 200, got %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read scan pallet body: %v", err)
+	}
+	_ = resp.Body.Close()
+
+	text := string(body)
+	if !strings.Contains(text, `id="scan-modal"`) {
+		t.Fatalf("expected scan modal element on scan page")
+	}
+	if !strings.Contains(text, "openPalletScanModal('pallet_barcode')") {
+		t.Fatalf("expected scan trigger button hook on scan page")
+	}
+	if !strings.Contains(text, "/tasker/pallets/' + id + '/receipt") {
+		t.Fatalf("expected scan page redirect script to receipt route")
+	}
+}
+
 func TestPalletProgressFragmentRendersMorphTarget(t *testing.T) {
 	env, client := setupIntegrationServer(t)
 	loginAs(t, client, env.server.URL, "admin", "Admin123!Receipter")

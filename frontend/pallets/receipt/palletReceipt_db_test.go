@@ -252,6 +252,65 @@ func TestLoadPageData_IncludesPrimaryAndMultiPhotoLinks(t *testing.T) {
 	}
 }
 
+func TestSaveReceipt_SetsAndUpdatesScannerAttribution(t *testing.T) {
+	db := openTestDB(t)
+	seedPallet(t, db, 7)
+
+	err := db.WithWriteTx(context.Background(), func(ctx context.Context, tx bun.Tx) error {
+		_, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO users (id, username, password_hash, role, created_at, updated_at) VALUES (2, 'admin-test', 'hash', 'admin', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`)
+		return err
+	})
+	if err != nil {
+		t.Fatalf("seed second user: %v", err)
+	}
+
+	expiry, _ := time.Parse("2006-01-02", "2028-05-01")
+	in1 := ReceiptInput{PalletID: 7, SKU: "ATTR-1", Description: "Attribution", Qty: 1, BatchNumber: "A1", ExpiryDate: expiry}
+	in2 := ReceiptInput{PalletID: 7, SKU: "ATTR-1", Description: "Attribution", Qty: 2, BatchNumber: "A1", ExpiryDate: expiry}
+
+	if err := SaveReceipt(context.Background(), db, nil, 1, in1); err != nil {
+		t.Fatalf("save first receipt: %v", err)
+	}
+
+	var scannedBy int64
+	var qty int64
+	err = db.WithReadTx(context.Background(), func(ctx context.Context, tx bun.Tx) error {
+		if err := tx.NewRaw(`SELECT scanned_by_user_id FROM pallet_receipts WHERE pallet_id = ? LIMIT 1`, 7).Scan(ctx, &scannedBy); err != nil {
+			return err
+		}
+		return tx.NewRaw(`SELECT qty FROM pallet_receipts WHERE pallet_id = ? LIMIT 1`, 7).Scan(ctx, &qty)
+	})
+	if err != nil {
+		t.Fatalf("load attribution after create: %v", err)
+	}
+	if scannedBy != 1 {
+		t.Fatalf("expected scanned_by_user_id=1 after create, got %d", scannedBy)
+	}
+	if qty != 1 {
+		t.Fatalf("expected qty=1 after create, got %d", qty)
+	}
+
+	if err := SaveReceipt(context.Background(), db, nil, 2, in2); err != nil {
+		t.Fatalf("save merged receipt: %v", err)
+	}
+
+	err = db.WithReadTx(context.Background(), func(ctx context.Context, tx bun.Tx) error {
+		if err := tx.NewRaw(`SELECT scanned_by_user_id FROM pallet_receipts WHERE pallet_id = ? LIMIT 1`, 7).Scan(ctx, &scannedBy); err != nil {
+			return err
+		}
+		return tx.NewRaw(`SELECT qty FROM pallet_receipts WHERE pallet_id = ? LIMIT 1`, 7).Scan(ctx, &qty)
+	})
+	if err != nil {
+		t.Fatalf("load attribution after merge: %v", err)
+	}
+	if scannedBy != 2 {
+		t.Fatalf("expected scanned_by_user_id=2 after merge, got %d", scannedBy)
+	}
+	if qty != 3 {
+		t.Fatalf("expected merged qty=3, got %d", qty)
+	}
+}
+
 func TestParseOptionalPhotoRejectsNonImage(t *testing.T) {
 	req := newMultipartPhotoRequest(t, "text/plain", []byte("not image"), "note.txt")
 	_, _, _, err := parseOptionalPhoto(req)
