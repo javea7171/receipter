@@ -951,7 +951,7 @@ func TestAdminStockImportListAndDelete(t *testing.T) {
 		"/tasker/stock/import",
 		"file",
 		"stock.csv",
-		[]byte("sku,description\nSKU-A,Alpha\nSKU-B,Beta\nSKU-C,Gamma\n"),
+		[]byte("notes,description,sku,ignored\nn1,Alpha,SKU-A,x\nn2,Beta,SKU-B,y\nn3,Gamma,SKU-C,z\n"),
 	)
 	if resp.StatusCode != http.StatusSeeOther {
 		t.Fatalf("expected stock import 303, got %d", resp.StatusCode)

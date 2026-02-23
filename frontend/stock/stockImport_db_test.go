@@ -59,6 +59,37 @@ func TestImportCSV_InvalidHeader(t *testing.T) {
 	}
 }
 
+func TestImportCSV_AllowsExtraColumnsAndHeaderOrder(t *testing.T) {
+	db := openStockTestDB(t)
+
+	csvData := "notes, description , \ufeffSKU,ignored\nn1,Alpha,A,x\nn2,Beta,B,y\n"
+	summary, err := ImportCSV(context.Background(), db, nil, 1, 1, strings.NewReader(csvData))
+	if err != nil {
+		t.Fatalf("import csv: %v", err)
+	}
+	if summary.Inserted != 2 || summary.Updated != 0 || summary.Errors != 0 {
+		t.Fatalf("unexpected summary: %+v", summary)
+	}
+
+	var count int
+	var descA string
+	err = db.WithReadTx(context.Background(), func(ctx context.Context, tx bun.Tx) error {
+		if err := tx.NewRaw(`SELECT COUNT(*) FROM stock_items`).Scan(ctx, &count); err != nil {
+			return err
+		}
+		return tx.NewRaw(`SELECT description FROM stock_items WHERE sku = 'A'`).Scan(ctx, &descA)
+	})
+	if err != nil {
+		t.Fatalf("verify imported items: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("expected 2 stock items, got %d", count)
+	}
+	if descA != "Alpha" {
+		t.Fatalf("expected description Alpha for sku A, got %q", descA)
+	}
+}
+
 func TestImportCSV_HappyPathAndUpdatePath(t *testing.T) {
 	db := openStockTestDB(t)
 

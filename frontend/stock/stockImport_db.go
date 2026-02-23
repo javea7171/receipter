@@ -53,9 +53,11 @@ func ImportCSV(ctx context.Context, db *sqlite.DB, auditSvc *audit.Service, user
 	if err != nil {
 		return summary, fmt.Errorf("read header: %w", err)
 	}
-	if len(header) < 2 || !strings.EqualFold(strings.TrimSpace(header[0]), "sku") || !strings.EqualFold(strings.TrimSpace(header[1]), "description") {
+	skuCol, descCol, ok := resolveImportColumns(header)
+	if !ok {
 		return summary, fmt.Errorf("invalid CSV header; expected sku,description")
 	}
+	minCols := maxInt(skuCol, descCol) + 1
 
 	err = db.WithWriteTx(ctx, func(ctx context.Context, tx bun.Tx) error {
 		for {
@@ -67,12 +69,12 @@ func ImportCSV(ctx context.Context, db *sqlite.DB, auditSvc *audit.Service, user
 				summary.Errors++
 				continue
 			}
-			if len(record) < 2 {
+			if len(record) < minCols {
 				summary.Errors++
 				continue
 			}
-			sku := strings.TrimSpace(record[0])
-			desc := strings.TrimSpace(record[1])
+			sku := strings.TrimSpace(record[skuCol])
+			desc := strings.TrimSpace(record[descCol])
 			if sku == "" || desc == "" {
 				summary.Errors++
 				continue
@@ -114,6 +116,37 @@ VALUES (?, ?, ?, ?, ?)`, userID, projectID, summary.Inserted, summary.Updated, s
 		return nil
 	})
 	return summary, err
+}
+
+func resolveImportColumns(header []string) (skuCol int, descCol int, ok bool) {
+	skuCol = -1
+	descCol = -1
+	for i, raw := range header {
+		key := normalizeCSVHeader(raw)
+		if key == "sku" && skuCol < 0 {
+			skuCol = i
+		}
+		if key == "description" && descCol < 0 {
+			descCol = i
+		}
+	}
+	if skuCol < 0 || descCol < 0 {
+		return 0, 0, false
+	}
+	return skuCol, descCol, true
+}
+
+func normalizeCSVHeader(value string) string {
+	v := strings.TrimSpace(value)
+	v = strings.TrimPrefix(v, "\ufeff")
+	return strings.ToLower(v)
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func DeleteStockItems(ctx context.Context, db *sqlite.DB, auditSvc *audit.Service, userID, projectID int64, ids []int64) (deleted int, failed int, err error) {
