@@ -49,6 +49,7 @@ type ReceiptLineView struct {
 type PageData struct {
 	PalletID     int64
 	PalletStatus string
+	IsAdmin      bool
 	CanEdit      bool
 	Message      string
 	Lines        []ReceiptLineView

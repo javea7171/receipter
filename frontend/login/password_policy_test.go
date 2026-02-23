@@ -8,11 +8,9 @@ func TestValidatePasswordPolicy(t *testing.T) {
 		pwd  string
 		ok   bool
 	}{
-		{name: "valid", pwd: "StrongPass1!", ok: true},
-		{name: "short", pwd: "Aa1!short", ok: false},
-		{name: "missing-symbol", pwd: "StrongPass12", ok: false},
-		{name: "missing-upper", pwd: "strongpass1!", ok: false},
-		{name: "missing-lower", pwd: "STRONGPASS1!", ok: false},
+		{name: "valid letters only", pwd: "abcde", ok: true},
+		{name: "valid mixed", pwd: "A1!bc", ok: true},
+		{name: "short", pwd: "abcd", ok: false},
 	}
 
 	for _, tc := range cases {

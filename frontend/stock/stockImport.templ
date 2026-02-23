@@ -1,28 +1,31 @@
 package stock
 
-import sharedhtml "receipter/frontend/shared/html"
+import (
+	"fmt"
+	sharedhtml "receipter/frontend/shared/html"
+)
 
-templ StockImportPage(message string) {
+templ StockImportPage(data PageData) {
 	<!doctype html>
 	<html data-theme="light">
 		<head>
 			<meta charset="utf-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
-			<title>Stock Import</title>
+			<title>Stock Imports</title>
 			<link rel="stylesheet" href="/assets/app.css"/>
 		</head>
 		<body>
-			@sharedhtml.TopBar("Stock Import")
-			<main class="container-shell">
-				<section class="page-card max-w-lg mx-auto">
+			@sharedhtml.TopBar("Stock Imports")
+			<main class="container-shell space-y-4">
+				<section class="page-card">
 					<div class="page-card-body space-y-4">
 						<div>
-							<h1 class="text-xl font-bold">Stock Import</h1>
-							<p class="text-sm text-base-content/60 mt-1">Upload a CSV file to import stock data</p>
+							<h1 class="text-xl font-bold">Stock Imports</h1>
+							<p class="text-sm text-base-content/60 mt-1">Upload a CSV file to import stock data and manage imported records</p>
 						</div>
-						if message != "" {
+						if data.Message != "" {
 							<div role="alert" class="alert alert-info alert-soft">
-								<span>{ message }</span>
+								<span>{ data.Message }</span>
 							</div>
 						}
 						<form method="post" action="/tasker/stock/import" enctype="multipart/form-data" class="space-y-4">
@@ -39,9 +42,79 @@ templ StockImportPage(message string) {
 						</form>
 					</div>
 				</section>
+
+				<section class="page-card">
+					<div class="page-card-body space-y-3">
+						<div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+							<h2 class="section-title">Imported Records</h2>
+							<span class="badge badge-neutral badge-soft">{ fmt.Sprintf("%d records", len(data.Records)) }</span>
+						</div>
+						if len(data.Records) == 0 {
+							<div role="alert" class="alert alert-info alert-soft">
+								<span>No stock records imported yet.</span>
+							</div>
+						} else {
+							<form method="post" action="/tasker/stock/delete" class="space-y-3">
+								<div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+									<label class="label cursor-pointer justify-start gap-2 p-0">
+										<input id="select-all-stock" class="checkbox checkbox-sm" type="checkbox"/>
+										<span class="label-text">Select all</span>
+									</label>
+									<button class="btn btn-error btn-soft btn-sm" type="submit" onclick="return confirm('Delete selected stock records?')">Delete Selected</button>
+								</div>
+								<div class="overflow-x-auto">
+									<table class="table table-zebra">
+										<thead>
+											<tr>
+												<th></th>
+												<th>SKU</th>
+												<th>Description</th>
+												<th>Created</th>
+												<th>Updated</th>
+												<th></th>
+											</tr>
+										</thead>
+										<tbody>
+											for _, record := range data.Records {
+												<tr>
+													<td>
+														<input class="checkbox checkbox-sm stock-record-select" type="checkbox" name="item_id" value={ fmt.Sprintf("%d", record.ID) }/>
+													</td>
+													<td class="font-mono font-semibold">{ record.SKU }</td>
+													<td>{ record.Description }</td>
+													<td class="text-sm">{ record.CreatedAt }</td>
+													<td class="text-sm">{ record.UpdatedAt }</td>
+													<td class="text-right">
+														<button
+															class="btn btn-error btn-soft btn-xs"
+															type="submit"
+															formaction={ fmt.Sprintf("/tasker/stock/delete/%d", record.ID) }
+															formmethod="post"
+															onclick="return confirm('Delete this stock record?')">Delete</button>
+													</td>
+												</tr>
+											}
+										</tbody>
+									</table>
+								</div>
+							</form>
+						}
+					</div>
+				</section>
 			</main>
-			@sharedhtml.Dock(sharedhtml.NavNone)
+			@sharedhtml.Dock(sharedhtml.NavImports)
 			@templ.Raw(sharedhtml.CSRFFormScript())
+			<script>
+				(function() {
+					const toggle = document.getElementById('select-all-stock');
+					if (!toggle) return;
+					toggle.addEventListener('change', function() {
+						document.querySelectorAll('.stock-record-select').forEach(function(el) {
+							el.checked = toggle.checked;
+						});
+					});
+				})();
+			</script>
 		</body>
 	</html>
 }

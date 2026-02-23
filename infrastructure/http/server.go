@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"strings"
 	"time"
 
 	loginflow "receipter/frontend/login"
@@ -152,7 +151,7 @@ func (s *Server) AuthenticateMiddleware(next http.Handler) http.Handler {
 		}
 
 		path := r.URL.Path
-		skipRBAC := path == "/login" || path == "/logout" || strings.HasPrefix(path, "/tasker/settings/")
+		skipRBAC := path == "/login" || path == "/logout"
 
 		isAdmin := false
 		for _, role := range session.UserRoles {

@@ -27,6 +27,8 @@ func (s *Server) RegisterLoginRoutes() {
 func (s *Server) RegisterAdminRoutes(r chi.Router) chi.Router {
 	s.Rbac.Add(rbac.RoleAdmin, "ADMIN_USERS_LIST_VIEW", http.MethodGet, "/tasker/admin/users")
 	r.Get("/admin/users", adminusers.UsersPageQueryHandler(s.DB, s.UserCache))
+	s.Rbac.Add(rbac.RoleAdmin, "ADMIN_USERS_CREATE", http.MethodPost, "/tasker/admin/users")
+	r.Post("/admin/users", adminusers.CreateUserCommandHandler(s.DB, s.UserCache))
 	return r
 }
 
@@ -36,9 +38,9 @@ func (s *Server) RegisterFrontendRoutes(r chi.Router) chi.Router {
 	s.RegisterStockRoutes(r)
 	s.RegisterExportRoutes(r)
 
-	s.Rbac.Add(rbac.RoleScanner, "SETTINGS_NOTIFICATIONS_VIEW", http.MethodGet, "/tasker/settings/notifications")
+	s.Rbac.Add(rbac.RoleAdmin, "SETTINGS_NOTIFICATIONS_VIEW", http.MethodGet, "/tasker/settings/notifications")
 	r.Get("/settings/notifications", settings.NotificationSettingsPageHandler(s.DB))
-	s.Rbac.Add(rbac.RoleScanner, "SETTINGS_NOTIFICATIONS_EDIT", http.MethodPost, "/tasker/settings/notifications")
+	s.Rbac.Add(rbac.RoleAdmin, "SETTINGS_NOTIFICATIONS_EDIT", http.MethodPost, "/tasker/settings/notifications")
 	r.Post("/settings/notifications", settings.NotificationSettingsUpdateHandler(s.DB))
 
 	return r
@@ -48,16 +50,17 @@ func (s *Server) RegisterPalletRoutes(r chi.Router) {
 	s.Rbac.Add(rbac.RoleScanner, "PALLET_PROGRESS_VIEW", http.MethodGet, "/tasker/pallets/progress")
 	r.Get("/pallets/progress", palletprogress.ProgressPageQueryHandler(s.DB))
 
-	s.Rbac.Add(rbac.RoleScanner, "PALLET_CREATE", http.MethodPost, "/tasker/pallets/new")
+	s.Rbac.Add(rbac.RoleAdmin, "PALLET_CREATE", http.MethodPost, "/tasker/pallets/new")
 	r.Post("/pallets/new", palletlabels.NewPalletCommandHandler(s.DB, s.Audit))
 
-	s.Rbac.Add(rbac.RoleScanner, "PALLET_LABEL_VIEW", http.MethodGet, "/tasker/pallets/*/label")
+	s.Rbac.Add(rbac.RoleAdmin, "PALLET_LABEL_VIEW", http.MethodGet, "/tasker/pallets/*/label")
 	r.Get("/pallets/{id}/label", palletlabels.PalletLabelPageQueryHandler(s.DB))
 
 	s.Rbac.Add(rbac.RoleScanner, "PALLET_SCAN_VIEW", http.MethodGet, "/tasker/scan/pallet")
 	r.Get("/scan/pallet", palletlabels.ScanPalletPageQueryHandler())
 
 	s.Rbac.Add(rbac.RoleAdmin, "PALLET_CONTENT_LABEL_VIEW", http.MethodGet, "/tasker/pallets/*/content-label")
+	s.Rbac.Add(rbac.RoleScanner, "PALLET_CONTENT_LABEL_VIEW", http.MethodGet, "/tasker/pallets/*/content-label")
 	r.Get("/pallets/{id}/content-label", palletlabels.PalletContentLabelPageQueryHandler(s.DB))
 
 	s.Rbac.Add(rbac.RoleScanner, "PALLET_RECEIPT_VIEW", http.MethodGet, "/tasker/pallets/*/receipt")
@@ -72,10 +75,10 @@ func (s *Server) RegisterPalletRoutes(r chi.Router) {
 	s.Rbac.Add(rbac.RoleScanner, "PALLET_RECEIPT_PHOTOS_VIEW", http.MethodGet, "/tasker/api/pallets/*/receipts/*/photos/*")
 	r.Get("/api/pallets/{id}/receipts/{receiptID}/photos/{photoID}", palletreceipt.ReceiptPhotosHandler(s.DB))
 
-	s.Rbac.Add(rbac.RoleScanner, "PALLET_CLOSE", http.MethodPost, "/tasker/api/pallets/*/close")
+	s.Rbac.Add(rbac.RoleAdmin, "PALLET_CLOSE", http.MethodPost, "/tasker/api/pallets/*/close")
 	r.Post("/api/pallets/{id}/close", palletprogress.ClosePalletCommandHandler(s.DB, s.Audit))
 
-	s.Rbac.Add(rbac.RoleScanner, "PALLET_REOPEN", http.MethodPost, "/tasker/api/pallets/*/reopen")
+	s.Rbac.Add(rbac.RoleAdmin, "PALLET_REOPEN", http.MethodPost, "/tasker/api/pallets/*/reopen")
 	r.Post("/api/pallets/{id}/reopen", palletprogress.ReopenPalletCommandHandler(s.DB, s.Audit))
 
 	s.Rbac.Add(rbac.RoleScanner, "STOCK_SEARCH", http.MethodGet, "/tasker/api/stock/search")
@@ -88,18 +91,24 @@ func (s *Server) RegisterStockRoutes(r chi.Router) {
 
 	s.Rbac.Add(rbac.RoleAdmin, "STOCK_IMPORT", http.MethodPost, "/tasker/stock/import")
 	r.Post("/stock/import", stock.StockImportCommandHandler(s.DB, s.Audit))
+
+	s.Rbac.Add(rbac.RoleAdmin, "STOCK_DELETE_BULK", http.MethodPost, "/tasker/stock/delete")
+	r.Post("/stock/delete", stock.StockDeleteItemsCommandHandler(s.DB, s.Audit))
+
+	s.Rbac.Add(rbac.RoleAdmin, "STOCK_DELETE_ONE", http.MethodPost, "/tasker/stock/delete/*")
+	r.Post("/stock/delete/{id}", stock.StockDeleteItemCommandHandler(s.DB, s.Audit))
 }
 
 func (s *Server) RegisterExportRoutes(r chi.Router) {
-	s.Rbac.Add(rbac.RoleScanner, "EXPORTS_VIEW", http.MethodGet, "/tasker/exports")
+	s.Rbac.Add(rbac.RoleAdmin, "EXPORTS_VIEW", http.MethodGet, "/tasker/exports")
 	r.Get("/exports", exportspage.ExportsPageQueryHandler(s.DB))
 
-	s.Rbac.Add(rbac.RoleScanner, "EXPORT_PALLET", http.MethodGet, "/tasker/exports/pallet/*")
+	s.Rbac.Add(rbac.RoleAdmin, "EXPORT_PALLET", http.MethodGet, "/tasker/exports/pallet/*")
 	r.Get("/exports/pallet/{id}.csv", exportspage.PalletExportCSVHandler(s.DB))
 
-	s.Rbac.Add(rbac.RoleScanner, "EXPORT_RECEIPTS", http.MethodGet, "/tasker/exports/receipts.csv")
+	s.Rbac.Add(rbac.RoleAdmin, "EXPORT_RECEIPTS", http.MethodGet, "/tasker/exports/receipts.csv")
 	r.Get("/exports/receipts.csv", exportspage.ReceiptsExportCSVHandler(s.DB))
 
-	s.Rbac.Add(rbac.RoleScanner, "EXPORT_STATUS", http.MethodGet, "/tasker/exports/pallet-status.csv")
+	s.Rbac.Add(rbac.RoleAdmin, "EXPORT_STATUS", http.MethodGet, "/tasker/exports/pallet-status.csv")
 	r.Get("/exports/pallet-status.csv", exportspage.PalletStatusCSVHandler(s.DB))
 }

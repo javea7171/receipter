@@ -59,7 +59,7 @@ templ PalletProgressFragment(summary Summary) {
 		data-signals:lastScrollY="0"
 		data-on:datastar-fetch="evt.detail.type === 'started' && ($lastScrollY = window.scrollY); evt.detail.type === 'finished' && requestAnimationFrame(() => window.scrollTo(0, $lastScrollY));"
 		data-on-interval__duration.3s={ progressAutoRefreshExpr(summary.StatusFilter) }>
-		@sharedhtml.TopBar("Pallet Progress")
+		@sharedhtml.TopBarWithRole("Pallet Progress", summary.CanCreatePallet)
 		<main class="container-shell space-y-4">
 			<!-- Header -->
 			<div class="page-header">
@@ -80,14 +80,16 @@ templ PalletProgressFragment(summary Summary) {
 						</fieldset>
 						<button class="btn btn-outline btn-sm" type="submit">Filter</button>
 					</form>
-					<form method="post" action="/tasker/pallets/new" target="_blank">
-						<button class="btn btn-primary btn-lg" type="submit">
-							<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="size-5">
-								<path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
-							</svg>
-							New Pallet
-						</button>
-					</form>
+					if summary.CanCreatePallet {
+						<form method="post" action="/tasker/pallets/new" target="_blank">
+							<button class="btn btn-primary btn-lg" type="submit">
+								<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="size-5">
+									<path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+								</svg>
+								New Pallet
+							</button>
+						</form>
+					}
 				</div>
 			</div>
 
@@ -148,16 +150,22 @@ templ PalletProgressFragment(summary Summary) {
 												<a class="btn btn-soft btn-info btn-sm" href={ fmt.Sprintf("/tasker/pallets/%d/content-label", p.ID) }>View</a>
 											}
 										</td>
-										<td><a class="btn btn-soft btn-primary btn-sm" href={ fmt.Sprintf("/tasker/pallets/%d/receipt", p.ID) }>Receipt</a></td>
 										<td>
-											if p.CanClose {
-												<form method="post" action={ fmt.Sprintf("/tasker/api/pallets/%d/close", p.ID) }>
-													<button class="btn btn-soft btn-warning btn-sm" type="submit">Close</button>
-												</form>
-											} else if p.CanReopen {
-												<form method="post" action={ fmt.Sprintf("/tasker/api/pallets/%d/reopen", p.ID) }>
-													<button class="btn btn-soft btn-success btn-sm" type="submit">Reopen</button>
-												</form>
+											if summary.CanOpenReceipt {
+												<a class="btn btn-soft btn-primary btn-sm" href={ fmt.Sprintf("/tasker/pallets/%d/receipt", p.ID) }>Receipt</a>
+											}
+										</td>
+										<td>
+											if summary.CanManageLifecycle {
+												if p.CanClose {
+													<form method="post" action={ fmt.Sprintf("/tasker/api/pallets/%d/close", p.ID) }>
+														<button class="btn btn-soft btn-warning btn-sm" type="submit">Close</button>
+													</form>
+												} else if p.CanReopen {
+													<form method="post" action={ fmt.Sprintf("/tasker/api/pallets/%d/reopen", p.ID) }>
+														<button class="btn btn-soft btn-success btn-sm" type="submit">Reopen</button>
+													</form>
+												}
 											}
 										</td>
 									</tr>
@@ -193,15 +201,19 @@ templ PalletProgressFragment(summary Summary) {
 										if summary.CanViewContent {
 											<a class="btn btn-info btn-soft btn-sm flex-1" href={ fmt.Sprintf("/tasker/pallets/%d/content-label", p.ID) }>View</a>
 										}
-										<a class="btn btn-primary btn-sm flex-1" href={ fmt.Sprintf("/tasker/pallets/%d/receipt", p.ID) }>Receipt</a>
-										if p.CanClose {
-											<form class="flex-1" method="post" action={ fmt.Sprintf("/tasker/api/pallets/%d/close", p.ID) }>
-												<button class="btn btn-warning btn-soft btn-sm w-full" type="submit">Close</button>
-											</form>
-										} else if p.CanReopen {
-											<form class="flex-1" method="post" action={ fmt.Sprintf("/tasker/api/pallets/%d/reopen", p.ID) }>
-												<button class="btn btn-success btn-soft btn-sm w-full" type="submit">Reopen</button>
-											</form>
+										if summary.CanOpenReceipt {
+											<a class="btn btn-primary btn-sm flex-1" href={ fmt.Sprintf("/tasker/pallets/%d/receipt", p.ID) }>Receipt</a>
+										}
+										if summary.CanManageLifecycle {
+											if p.CanClose {
+												<form class="flex-1" method="post" action={ fmt.Sprintf("/tasker/api/pallets/%d/close", p.ID) }>
+													<button class="btn btn-warning btn-soft btn-sm w-full" type="submit">Close</button>
+												</form>
+											} else if p.CanReopen {
+												<form class="flex-1" method="post" action={ fmt.Sprintf("/tasker/api/pallets/%d/reopen", p.ID) }>
+													<button class="btn btn-success btn-soft btn-sm w-full" type="submit">Reopen</button>
+												</form>
+											}
 										}
 									</div>
 								</div>
@@ -211,7 +223,7 @@ templ PalletProgressFragment(summary Summary) {
 				</div>
 			</section>
 		</main>
-		@sharedhtml.Dock(sharedhtml.NavPallets)
+		@sharedhtml.DockWithRole(sharedhtml.NavPallets, summary.CanCreatePallet)
 		@templ.Raw(sharedhtml.CSRFFormScript())
 	</div>
 }

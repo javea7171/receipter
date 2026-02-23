@@ -21,7 +21,11 @@ func ProgressPageQueryHandler(db *sqlite.DB) http.HandlerFunc {
 			return
 		}
 		if session, ok := sessioncontext.GetSessionFromContext(r.Context()); ok {
-			summary.CanViewContent = hasRole(session.UserRoles, rbac.RoleAdmin)
+			isAdmin := hasRole(session.UserRoles, rbac.RoleAdmin)
+			summary.CanViewContent = isAdmin || hasRole(session.UserRoles, rbac.RoleScanner)
+			summary.CanCreatePallet = isAdmin
+			summary.CanOpenReceipt = isAdmin
+			summary.CanManageLifecycle = isAdmin
 		}
 
 		if r.URL.Query().Get("fragment") == "1" {

@@ -5,11 +5,14 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 
+	sessioncontext "receipter/frontend/shared/context"
 	"receipter/infrastructure/audit"
+	"receipter/infrastructure/rbac"
 	"receipter/infrastructure/sqlite"
 )
 
@@ -92,10 +95,24 @@ func PalletContentLabelPageQueryHandler(db *sqlite.DB) http.HandlerFunc {
 // ScanPalletPageQueryHandler renders pallet scan/lookup page.
 func ScanPalletPageQueryHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		prefill := strings.TrimSpace(r.URL.Query().Get("pallet"))
+		showAdminLinks := false
+		if session, ok := sessioncontext.GetSessionFromContext(r.Context()); ok {
+			showAdminLinks = hasRole(session.UserRoles, rbac.RoleAdmin)
+		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		if err := ScanPalletPage().Render(r.Context(), w); err != nil {
+		if err := ScanPalletPage(prefill, showAdminLinks).Render(r.Context(), w); err != nil {
 			http.Error(w, "failed to render scan pallet page", http.StatusInternalServerError)
 			return
 		}
 	}
+}
+
+func hasRole(userRoles []string, role string) bool {
+	for _, userRole := range userRoles {
+		if userRole == role {
+			return true
+		}
+	}
+	return false
 }

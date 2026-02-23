@@ -52,7 +52,7 @@ func PalletReceiptPage(data PageData) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = sharedhtml.TopBar("Receipt").Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = sharedhtml.TopBarWithRole("Receipt", data.IsAdmin).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -581,7 +581,7 @@ func PalletReceiptPage(data PageData) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = sharedhtml.Dock(sharedhtml.NavNone).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = sharedhtml.DockWithRole(sharedhtml.NavNone, data.IsAdmin).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

@@ -1,14 +1,19 @@
 package http
 
 import (
+	"bytes"
 	"context"
+	"database/sql"
+	"errors"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -96,6 +101,40 @@ func postForm(t *testing.T, client *http.Client, baseURL, path string, data url.
 	return resp
 }
 
+func postMultipartFile(t *testing.T, client *http.Client, baseURL, path, fieldName, fileName string, fileContents []byte) *http.Response {
+	t.Helper()
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+
+	if token := csrfToken(t, client, baseURL); token != "" {
+		if err := writer.WriteField("_csrf", token); err != nil {
+			t.Fatalf("write csrf multipart field: %v", err)
+		}
+	}
+
+	part, err := writer.CreateFormFile(fieldName, fileName)
+	if err != nil {
+		t.Fatalf("create multipart file field: %v", err)
+	}
+	if _, err := part.Write(fileContents); err != nil {
+		t.Fatalf("write multipart file content: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close multipart writer: %v", err)
+	}
+
+	req, err := http.NewRequest(http.MethodPost, baseURL+path, &body)
+	if err != nil {
+		t.Fatalf("build multipart request: %v", err)
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("POST multipart %s failed: %v", path, err)
+	}
+	return resp
+}
+
 func get(t *testing.T, client *http.Client, baseURL, path string) *http.Response {
 	t.Helper()
 	resp, err := client.Get(baseURL + path)
@@ -174,6 +213,44 @@ WHERE u.username = ? AND er.export_type = ?`, username, exportType).Scan(ctx, &c
 	return count
 }
 
+func stockItemIDBySKU(t *testing.T, db *sqlite.DB, sku string) int64 {
+	t.Helper()
+	var id int64
+	err := db.WithReadTx(context.Background(), func(ctx context.Context, tx bun.Tx) error {
+		return tx.NewRaw(`SELECT id FROM stock_items WHERE sku = ? LIMIT 1`, sku).Scan(ctx, &id)
+	})
+	if err != nil {
+		t.Fatalf("load stock item id for sku %s: %v", sku, err)
+	}
+	return id
+}
+
+func stockItemCount(t *testing.T, db *sqlite.DB) int64 {
+	t.Helper()
+	var count int64
+	err := db.WithReadTx(context.Background(), func(ctx context.Context, tx bun.Tx) error {
+		return tx.NewRaw(`SELECT COUNT(*) FROM stock_items`).Scan(ctx, &count)
+	})
+	if err != nil {
+		t.Fatalf("count stock items: %v", err)
+	}
+	return count
+}
+
+func userRoleByUsername(t *testing.T, db *sqlite.DB, username string) (role string, found bool) {
+	t.Helper()
+	err := db.WithReadTx(context.Background(), func(ctx context.Context, tx bun.Tx) error {
+		return tx.NewRaw(`SELECT role FROM users WHERE LOWER(username) = LOWER(?) LIMIT 1`, username).Scan(ctx, &role)
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", false
+		}
+		t.Fatalf("load user role for %s: %v", username, err)
+	}
+	return role, true
+}
+
 func TestCSRFPostWithoutTokenRejected(t *testing.T) {
 	env, client := setupIntegrationServer(t)
 
@@ -194,6 +271,54 @@ func TestCSRFPostWithoutTokenRejected(t *testing.T) {
 func TestCSRFPostWithTokenAccepted(t *testing.T) {
 	env, client := setupIntegrationServer(t)
 	loginAs(t, client, env.server.URL, "admin", "Admin123!Receipter")
+}
+
+func TestCSRFPostWithoutToken_SameOriginRefererAccepted(t *testing.T) {
+	env, client := setupIntegrationServer(t)
+	loginAs(t, client, env.server.URL, "admin", "Admin123!Receipter")
+
+	req, err := http.NewRequest(http.MethodPost, env.server.URL+"/tasker/pallets/new", strings.NewReader(""))
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Referer", env.server.URL+"/tasker/pallets/progress")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("post new pallet without csrf token: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected same-origin csrf fallback 303, got %d", resp.StatusCode)
+	}
+	if !strings.Contains(resp.Header.Get("Location"), "/tasker/pallets/1/label") {
+		t.Fatalf("unexpected create pallet redirect: %s", resp.Header.Get("Location"))
+	}
+}
+
+func TestCSRFPostWithoutToken_CrossOriginRejected(t *testing.T) {
+	env, client := setupIntegrationServer(t)
+	loginAs(t, client, env.server.URL, "admin", "Admin123!Receipter")
+
+	req, err := http.NewRequest(http.MethodPost, env.server.URL+"/tasker/pallets/new", strings.NewReader(""))
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Origin", "https://evil.example")
+	req.Header.Set("Referer", "https://evil.example/attack")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("post cross-origin request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 for cross-origin missing csrf token, got %d", resp.StatusCode)
+	}
 }
 
 func TestScanPalletPageIncludesScannerModalHook(t *testing.T) {
@@ -246,7 +371,7 @@ func TestPalletProgressFragmentRendersMorphTarget(t *testing.T) {
 	}
 }
 
-func TestPalletProgressAdminShowsViewButtonScannerDoesNot(t *testing.T) {
+func TestPalletProgressAdminAndScannerShowViewButton(t *testing.T) {
 	env, _ := setupIntegrationServer(t)
 	adminClient := newHTTPClient(t)
 	scannerClient := newHTTPClient(t)
@@ -270,6 +395,9 @@ func TestPalletProgressAdminShowsViewButtonScannerDoesNot(t *testing.T) {
 	if !strings.Contains(string(adminBody), `/tasker/pallets/1/content-label`) {
 		t.Fatalf("expected admin progress to include content view link")
 	}
+	if !strings.Contains(string(adminBody), `/tasker/stock/import`) {
+		t.Fatalf("expected admin navigation to include imports link")
+	}
 
 	loginAs(t, scannerClient, env.server.URL, "scanner1", "Scanner123!Receipter")
 	resp = get(t, scannerClient, env.server.URL, "/tasker/pallets/progress")
@@ -281,16 +409,203 @@ func TestPalletProgressAdminShowsViewButtonScannerDoesNot(t *testing.T) {
 		t.Fatalf("read scanner progress body: %v", err)
 	}
 	_ = resp.Body.Close()
-	if strings.Contains(string(scannerBody), `/tasker/pallets/1/content-label`) {
-		t.Fatalf("expected scanner progress to hide content view link")
+	if !strings.Contains(string(scannerBody), `/tasker/pallets/1/content-label`) {
+		t.Fatalf("expected scanner progress to include content view link")
 	}
 
 	resp = get(t, scannerClient, env.server.URL, "/tasker/pallets/1/content-label")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected scanner content view 200, got %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+}
+
+func TestAdminUsersCreateRoute_AdminAllowedScannerDenied(t *testing.T) {
+	env, _ := setupIntegrationServer(t)
+	adminClient := newHTTPClient(t)
+	scannerClient := newHTTPClient(t)
+
+	loginAs(t, adminClient, env.server.URL, "admin", "Admin123!Receipter")
+	resp := postForm(t, adminClient, env.server.URL, "/tasker/admin/users", url.Values{
+		"username": {"newscanner"},
+		"password": {"NewScanner123!Pass"},
+		"role":     {"scanner"},
+	})
 	if resp.StatusCode != http.StatusSeeOther {
-		t.Fatalf("expected scanner denied on content view with 303, got %d", resp.StatusCode)
+		t.Fatalf("expected admin create user 303, got %d", resp.StatusCode)
+	}
+	if !strings.Contains(resp.Header.Get("Location"), "/tasker/admin/users?status=") {
+		t.Fatalf("expected success redirect to users page, got %s", resp.Header.Get("Location"))
+	}
+	_ = resp.Body.Close()
+
+	role, found := userRoleByUsername(t, env.db, "newscanner")
+	if !found {
+		t.Fatalf("expected newly created user to exist")
+	}
+	if role != "scanner" {
+		t.Fatalf("expected created user role scanner, got %s", role)
+	}
+
+	loginAs(t, scannerClient, env.server.URL, "scanner1", "Scanner123!Receipter")
+	resp = postForm(t, scannerClient, env.server.URL, "/tasker/admin/users", url.Values{
+		"username": {"blockedscanner"},
+		"password": {"Blocked123!Pass"},
+		"role":     {"scanner"},
+	})
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected scanner denied redirect 303, got %d", resp.StatusCode)
 	}
 	if !strings.Contains(resp.Header.Get("Location"), "/login") {
-		t.Fatalf("expected scanner content view redirect to login, got %s", resp.Header.Get("Location"))
+		t.Fatalf("expected scanner create user redirect to login, got %s", resp.Header.Get("Location"))
+	}
+	_ = resp.Body.Close()
+
+	_, found = userRoleByUsername(t, env.db, "blockedscanner")
+	if found {
+		t.Fatalf("scanner should not be able to create users")
+	}
+}
+
+func TestScannerRestrictedScreensAndProgressUsesScanView(t *testing.T) {
+	env, _ := setupIntegrationServer(t)
+	adminClient := newHTTPClient(t)
+	scannerClient := newHTTPClient(t)
+
+	loginAs(t, adminClient, env.server.URL, "admin", "Admin123!Receipter")
+	resp := postForm(t, adminClient, env.server.URL, "/tasker/pallets/new", nil)
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected admin create pallet 303, got %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+
+	loginAs(t, scannerClient, env.server.URL, "scanner1", "Scanner123!Receipter")
+
+	resp = get(t, scannerClient, env.server.URL, "/tasker/pallets/progress")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected scanner progress 200, got %d", resp.StatusCode)
+	}
+	progressBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read scanner progress body: %v", err)
+	}
+	_ = resp.Body.Close()
+	progressText := string(progressBody)
+	if !strings.Contains(progressText, "/tasker/pallets/1/content-label") {
+		t.Fatalf("expected scanner progress to include content view button for pallet 1")
+	}
+	if !strings.Contains(progressText, `/tasker/pallets/progress`) || !strings.Contains(progressText, `/tasker/scan/pallet`) {
+		t.Fatalf("scanner navigation should include pallets and scan links")
+	}
+	if strings.Contains(progressText, `/tasker/exports`) || strings.Contains(progressText, `/tasker/settings/notifications`) || strings.Contains(progressText, `/tasker/admin/users`) {
+		t.Fatalf("scanner navigation should not include admin links")
+	}
+	if strings.Contains(progressText, `/tasker/stock/import`) {
+		t.Fatalf("scanner navigation should not include imports link")
+	}
+	if strings.Contains(progressText, `>Receipt</a>`) {
+		t.Fatalf("scanner progress should not include editable receipt action")
+	}
+	if strings.Contains(progressText, "New Pallet") {
+		t.Fatalf("scanner progress should not show new pallet action")
+	}
+
+	resp = get(t, scannerClient, env.server.URL, "/tasker/pallets/1/content-label")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected scanner content view 200, got %d", resp.StatusCode)
+	}
+	viewBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read scanner view body: %v", err)
+	}
+	_ = resp.Body.Close()
+	viewText := string(viewBody)
+	if !strings.Contains(viewText, "Pallet 1 Contents") {
+		t.Fatalf("expected content label heading in scanner view page")
+	}
+
+	resp = get(t, scannerClient, env.server.URL, "/tasker/scan/pallet")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected scanner scan page 200, got %d", resp.StatusCode)
+	}
+	scanBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read scanner scan page body: %v", err)
+	}
+	scanText := string(scanBody)
+	if !strings.Contains(scanText, `/tasker/pallets/progress`) || !strings.Contains(scanText, `/tasker/scan/pallet`) {
+		t.Fatalf("scanner scan page navigation should include pallets and scan links")
+	}
+	if strings.Contains(scanText, `/tasker/exports`) || strings.Contains(scanText, `/tasker/settings/notifications`) || strings.Contains(scanText, `/tasker/admin/users`) {
+		t.Fatalf("scanner scan page navigation should not include admin links")
+	}
+	if strings.Contains(scanText, `/tasker/stock/import`) {
+		t.Fatalf("scanner scan page navigation should not include imports link")
+	}
+	_ = resp.Body.Close()
+
+	resp = get(t, scannerClient, env.server.URL, "/tasker/pallets/1/receipt")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected scanner receipt page 200, got %d", resp.StatusCode)
+	}
+	receiptBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read scanner receipt page body: %v", err)
+	}
+	receiptText := string(receiptBody)
+	if !strings.Contains(receiptText, `/tasker/pallets/progress`) || !strings.Contains(receiptText, `/tasker/scan/pallet`) {
+		t.Fatalf("scanner receipt page navigation should include pallets and scan links")
+	}
+	if strings.Contains(receiptText, `/tasker/exports`) || strings.Contains(receiptText, `/tasker/settings/notifications`) || strings.Contains(receiptText, `/tasker/admin/users`) {
+		t.Fatalf("scanner receipt page navigation should not include admin links")
+	}
+	if strings.Contains(receiptText, `/tasker/stock/import`) {
+		t.Fatalf("scanner receipt page navigation should not include imports link")
+	}
+	_ = resp.Body.Close()
+
+	resp = get(t, scannerClient, env.server.URL, "/tasker/stock/import")
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected scanner stock import denied with 303, got %d", resp.StatusCode)
+	}
+	if !strings.Contains(resp.Header.Get("Location"), "/login") {
+		t.Fatalf("expected scanner stock import redirect to login, got %s", resp.Header.Get("Location"))
+	}
+	_ = resp.Body.Close()
+
+	resp = get(t, scannerClient, env.server.URL, "/tasker/exports")
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected scanner exports denied with 303, got %d", resp.StatusCode)
+	}
+	if !strings.Contains(resp.Header.Get("Location"), "/login") {
+		t.Fatalf("expected scanner exports redirect to login, got %s", resp.Header.Get("Location"))
+	}
+	_ = resp.Body.Close()
+
+	resp = get(t, scannerClient, env.server.URL, "/tasker/settings/notifications")
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected scanner settings denied with 303, got %d", resp.StatusCode)
+	}
+	if !strings.Contains(resp.Header.Get("Location"), "/login") {
+		t.Fatalf("expected scanner settings redirect to login, got %s", resp.Header.Get("Location"))
+	}
+	_ = resp.Body.Close()
+
+	resp = postForm(t, scannerClient, env.server.URL, "/tasker/pallets/new", nil)
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected scanner create pallet denied with 303, got %d", resp.StatusCode)
+	}
+	if !strings.Contains(resp.Header.Get("Location"), "/login") {
+		t.Fatalf("expected scanner create pallet redirect to login, got %s", resp.Header.Get("Location"))
+	}
+	_ = resp.Body.Close()
+
+	resp = postForm(t, scannerClient, env.server.URL, "/tasker/api/pallets/1/close", nil)
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected scanner close pallet denied with 303, got %d", resp.StatusCode)
+	}
+	if !strings.Contains(resp.Header.Get("Location"), "/login") {
+		t.Fatalf("expected scanner close pallet redirect to login, got %s", resp.Header.Get("Location"))
 	}
 	_ = resp.Body.Close()
 }
@@ -300,14 +615,14 @@ func TestPalletContentLabelFragmentIncludesScannerAndMorphTarget(t *testing.T) {
 	scannerClient := newHTTPClient(t)
 	adminClient := newHTTPClient(t)
 
-	loginAs(t, scannerClient, env.server.URL, "scanner1", "Scanner123!Receipter")
-
-	resp := postForm(t, scannerClient, env.server.URL, "/tasker/pallets/new", nil)
+	loginAs(t, adminClient, env.server.URL, "admin", "Admin123!Receipter")
+	resp := postForm(t, adminClient, env.server.URL, "/tasker/pallets/new", nil)
 	if resp.StatusCode != http.StatusSeeOther {
 		t.Fatalf("expected new pallet 303, got %d", resp.StatusCode)
 	}
 	_ = resp.Body.Close()
 
+	loginAs(t, scannerClient, env.server.URL, "scanner1", "Scanner123!Receipter")
 	resp = postForm(t, scannerClient, env.server.URL, "/tasker/api/pallets/1/receipts", url.Values{
 		"sku":          {"SKU-VIEW"},
 		"description":  {"View Item"},
@@ -320,7 +635,6 @@ func TestPalletContentLabelFragmentIncludesScannerAndMorphTarget(t *testing.T) {
 	}
 	_ = resp.Body.Close()
 
-	loginAs(t, adminClient, env.server.URL, "admin", "Admin123!Receipter")
 	resp = get(t, adminClient, env.server.URL, "/tasker/pallets/1/content-label?fragment=1")
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected content fragment status 200, got %d", resp.StatusCode)
@@ -351,14 +665,14 @@ func TestClosedPalletReceiptPermissions_ScannerDeniedAdminAllowed(t *testing.T) 
 	scannerClient := newHTTPClient(t)
 	adminClient := newHTTPClient(t)
 
-	loginAs(t, scannerClient, env.server.URL, "scanner1", "Scanner123!Receipter")
-
-	resp := postForm(t, scannerClient, env.server.URL, "/tasker/pallets/new", nil)
+	loginAs(t, adminClient, env.server.URL, "admin", "Admin123!Receipter")
+	resp := postForm(t, adminClient, env.server.URL, "/tasker/pallets/new", nil)
 	if resp.StatusCode != http.StatusSeeOther {
 		t.Fatalf("expected new pallet 303, got %d", resp.StatusCode)
 	}
 	_ = resp.Body.Close()
 
+	loginAs(t, scannerClient, env.server.URL, "scanner1", "Scanner123!Receipter")
 	resp = postForm(t, scannerClient, env.server.URL, "/tasker/api/pallets/1/receipts", url.Values{
 		"sku":          {"SKU-EDGE"},
 		"description":  {"Edge"},
@@ -371,7 +685,7 @@ func TestClosedPalletReceiptPermissions_ScannerDeniedAdminAllowed(t *testing.T) 
 	}
 	_ = resp.Body.Close()
 
-	resp = postForm(t, scannerClient, env.server.URL, "/tasker/api/pallets/1/close", nil)
+	resp = postForm(t, adminClient, env.server.URL, "/tasker/api/pallets/1/close", nil)
 	if resp.StatusCode != http.StatusSeeOther {
 		t.Fatalf("expected close pallet 303, got %d", resp.StatusCode)
 	}
@@ -416,6 +730,63 @@ func TestClosedPalletReceiptPermissions_ScannerDeniedAdminAllowed(t *testing.T) 
 	_, qtyFinal := countReceiptRowsQty(t, env.db, 1)
 	if qtyFinal != qtyBefore+2 {
 		t.Fatalf("expected admin closed receipt to increase qty to %d, got %d", qtyBefore+2, qtyFinal)
+	}
+}
+
+func TestAdminStockImportListAndDelete(t *testing.T) {
+	env, client := setupIntegrationServer(t)
+	loginAs(t, client, env.server.URL, "admin", "Admin123!Receipter")
+
+	resp := postMultipartFile(
+		t,
+		client,
+		env.server.URL,
+		"/tasker/stock/import",
+		"file",
+		"stock.csv",
+		[]byte("sku,description\nSKU-A,Alpha\nSKU-B,Beta\nSKU-C,Gamma\n"),
+	)
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected stock import 303, got %d", resp.StatusCode)
+	}
+	if !strings.Contains(resp.Header.Get("Location"), "/tasker/stock/import?status=") {
+		t.Fatalf("expected stock import redirect with status, got %s", resp.Header.Get("Location"))
+	}
+	_ = resp.Body.Close()
+
+	resp = get(t, client, env.server.URL, "/tasker/stock/import")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected stock import page 200, got %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read stock import page body: %v", err)
+	}
+	_ = resp.Body.Close()
+	text := string(body)
+	if !strings.Contains(text, "SKU-A") || !strings.Contains(text, "SKU-B") || !strings.Contains(text, "SKU-C") {
+		t.Fatalf("expected imported stock records listed on import page")
+	}
+
+	skuAID := stockItemIDBySKU(t, env.db, "SKU-A")
+	resp = postForm(t, client, env.server.URL, "/tasker/stock/delete/"+strconv.FormatInt(skuAID, 10), nil)
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected stock single delete 303, got %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+
+	skuBID := stockItemIDBySKU(t, env.db, "SKU-B")
+	skuCID := stockItemIDBySKU(t, env.db, "SKU-C")
+	resp = postForm(t, client, env.server.URL, "/tasker/stock/delete", url.Values{
+		"item_id": {strconv.FormatInt(skuBID, 10), strconv.FormatInt(skuCID, 10)},
+	})
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected stock bulk delete 303, got %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+
+	if count := stockItemCount(t, env.db); count != 0 {
+		t.Fatalf("expected all stock records deleted, got %d", count)
 	}
 }
 

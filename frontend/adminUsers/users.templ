@@ -23,11 +23,39 @@ templ UsersListPage(users []UserView, status string, errorMessage string) {
 
 				if status != "" || errorMessage != "" {
 					if errorMessage != "" {
-						<div role="alert" class="alert alert-error alert-soft"><span>{ status } { errorMessage }</span></div>
+						<div role="alert" class="alert alert-error alert-soft"><span>{ errorMessage }</span></div>
 					} else {
 						<div role="alert" class="alert alert-info alert-soft"><span>{ status }</span></div>
 					}
 				}
+
+				<section class="page-card">
+					<div class="page-card-body space-y-4">
+						<h2 class="section-title">Create User</h2>
+						<p class="text-sm text-base-content/60">Create a new scanner or admin account.</p>
+						<form method="post" action="/tasker/admin/users" class="grid gap-4 sm:grid-cols-3">
+							<fieldset class="fieldset">
+								<legend class="fieldset-legend">Username</legend>
+								<input class="input input-bordered" name="username" required autocomplete="off"/>
+							</fieldset>
+							<fieldset class="fieldset">
+								<legend class="fieldset-legend">Password</legend>
+								<input class="input input-bordered" type="password" name="password" required autocomplete="new-password"/>
+							</fieldset>
+							<fieldset class="fieldset">
+								<legend class="fieldset-legend">Role</legend>
+								<select class="select select-bordered" name="role">
+									<option value="scanner" selected>scanner</option>
+									<option value="admin">admin</option>
+								</select>
+							</fieldset>
+							<div class="sm:col-span-3 text-sm text-base-content/60">Password policy: at least 5 characters.</div>
+							<div class="sm:col-span-3">
+								<button class="btn btn-primary" type="submit">Create User</button>
+							</div>
+						</form>
+					</div>
+				</section>
 
 				<section class="page-card">
 					<div class="page-card-body">
@@ -64,6 +92,7 @@ templ UsersListPage(users []UserView, status string, errorMessage string) {
 				</section>
 			</main>
 			@sharedhtml.Dock(sharedhtml.NavNone)
+			@templ.Raw(sharedhtml.CSRFFormScript())
 		</body>
 	</html>
 }

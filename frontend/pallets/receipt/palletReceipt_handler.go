@@ -40,6 +40,12 @@ func ReceiptPageQueryHandler(db *sqlite.DB, _ *cache.UserSessionCache) http.Hand
 			http.Error(w, "failed to load receipt page", http.StatusInternalServerError)
 			return
 		}
+		for _, role := range session.UserRoles {
+			if role == rbac.RoleAdmin {
+				data.IsAdmin = true
+				break
+			}
+		}
 		data.CanEdit = CanUserReceiptPallet(data.PalletStatus, session.UserRoles)
 		if !data.CanEdit {
 			data.Message = "Pallet is closed. Only admins can add or edit receipt lines."

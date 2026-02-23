@@ -14,12 +14,15 @@ import (
 )
 
 type Summary struct {
-	CreatedCount   int
-	OpenCount      int
-	ClosedCount    int
-	StatusFilter   string
-	CanViewContent bool
-	Pallets        []PalletRow
+	CreatedCount       int
+	OpenCount          int
+	ClosedCount        int
+	StatusFilter       string
+	CanViewContent     bool
+	CanCreatePallet    bool
+	CanOpenReceipt     bool
+	CanManageLifecycle bool
+	Pallets            []PalletRow
 }
 
 type PalletRow struct {

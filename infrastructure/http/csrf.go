@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"net/http"
+	"net/url"
 	"strings"
 )
 
@@ -23,12 +24,18 @@ func (s *Server) CSRFMiddleware(next http.Handler) http.Handler {
 			provided = strings.TrimSpace(r.FormValue("_csrf"))
 		}
 
-		if provided == "" || subtle.ConstantTimeCompare([]byte(token), []byte(provided)) != 1 {
-			http.Error(w, "invalid csrf token", http.StatusForbidden)
+		if provided != "" && subtle.ConstantTimeCompare([]byte(token), []byte(provided)) == 1 {
+			next.ServeHTTP(w, r)
 			return
 		}
 
-		next.ServeHTTP(w, r)
+		// Fallback for same-origin form posts when token injection fails on dynamic UI updates.
+		if isTrustedSameOrigin(r) {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		http.Error(w, "invalid csrf token", http.StatusForbidden)
 	})
 }
 
@@ -61,4 +68,44 @@ func randomToken(n int) string {
 	buf := make([]byte, n)
 	_, _ = rand.Read(buf)
 	return hex.EncodeToString(buf)
+}
+
+func isTrustedSameOrigin(r *http.Request) bool {
+	origin := strings.TrimSpace(r.Header.Get("Origin"))
+	if origin != "" {
+		return sameOriginURL(r, origin)
+	}
+
+	referer := strings.TrimSpace(r.Header.Get("Referer"))
+	if referer != "" {
+		return sameOriginURL(r, referer)
+	}
+
+	return false
+}
+
+func sameOriginURL(r *http.Request, raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" || u.Scheme == "" {
+		return false
+	}
+	if !strings.EqualFold(u.Host, r.Host) {
+		return false
+	}
+	return strings.EqualFold(u.Scheme, requestScheme(r))
+}
+
+func requestScheme(r *http.Request) string {
+	if forwarded := strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")); forwarded != "" {
+		if idx := strings.Index(forwarded, ","); idx >= 0 {
+			forwarded = forwarded[:idx]
+		}
+		if forwarded = strings.TrimSpace(forwarded); forwarded != "" {
+			return strings.ToLower(forwarded)
+		}
+	}
+	if r.TLS != nil {
+		return "https"
+	}
+	return "http"
 }

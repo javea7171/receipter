@@ -93,3 +93,82 @@ func TestImportCSV_HappyPathAndUpdatePath(t *testing.T) {
 		t.Fatalf("expected updated description Alpha2, got %q", descA)
 	}
 }
+
+func TestListStockRecords_ReturnsSortedRows(t *testing.T) {
+	db := openStockTestDB(t)
+	_, err := ImportCSV(context.Background(), db, nil, 1, strings.NewReader("sku,description\nz-last,Zeta\nA-first,Alpha\n"))
+	if err != nil {
+		t.Fatalf("import csv: %v", err)
+	}
+
+	rows, err := ListStockRecords(context.Background(), db)
+	if err != nil {
+		t.Fatalf("list stock records: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 rows, got %d", len(rows))
+	}
+	if rows[0].SKU != "A-first" || rows[1].SKU != "z-last" {
+		t.Fatalf("expected case-insensitive sku sort, got %+v", rows)
+	}
+}
+
+func TestDeleteStockItems_DeletesMissingAndInUse(t *testing.T) {
+	db := openStockTestDB(t)
+	_, err := ImportCSV(context.Background(), db, nil, 1, strings.NewReader("sku,description\nKEEP,Keep\nDEL,Delete\n"))
+	if err != nil {
+		t.Fatalf("import csv: %v", err)
+	}
+
+	var keepID int64
+	var delID int64
+	err = db.WithReadTx(context.Background(), func(ctx context.Context, tx bun.Tx) error {
+		if err := tx.NewRaw(`SELECT id FROM stock_items WHERE sku = 'KEEP'`).Scan(ctx, &keepID); err != nil {
+			return err
+		}
+		if err := tx.NewRaw(`SELECT id FROM stock_items WHERE sku = 'DEL'`).Scan(ctx, &delID); err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("load item ids: %v", err)
+	}
+
+	err = db.WithWriteTx(context.Background(), func(ctx context.Context, tx bun.Tx) error {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO pallets (id, status, created_at) VALUES (1, 'open', CURRENT_TIMESTAMP)`); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, `
+INSERT INTO pallet_receipts (
+	pallet_id, stock_item_id, scanned_by_user_id, qty, damaged, damaged_qty, batch_number, expiry_date, created_at, updated_at
+) VALUES (?, ?, 1, 1, 0, 0, 'BATCH', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`, 1, keepID)
+		return err
+	})
+	if err != nil {
+		t.Fatalf("seed receipt reference: %v", err)
+	}
+
+	deleted, failed, err := DeleteStockItems(context.Background(), db, nil, 1, []int64{delID, keepID, 999999})
+	if err != nil {
+		t.Fatalf("delete stock items: %v", err)
+	}
+	if deleted != 1 || failed != 2 {
+		t.Fatalf("unexpected delete summary: deleted=%d failed=%d", deleted, failed)
+	}
+
+	var remaining int
+	var keptSKU string
+	err = db.WithReadTx(context.Background(), func(ctx context.Context, tx bun.Tx) error {
+		if err := tx.NewRaw(`SELECT COUNT(*) FROM stock_items`).Scan(ctx, &remaining); err != nil {
+			return err
+		}
+		return tx.NewRaw(`SELECT sku FROM stock_items LIMIT 1`).Scan(ctx, &keptSKU)
+	})
+	if err != nil {
+		t.Fatalf("verify remaining items: %v", err)
+	}
+	if remaining != 1 || keptSKU != "KEEP" {
+		t.Fatalf("expected only KEEP to remain, got remaining=%d sku=%s", remaining, keptSKU)
+	}
+}
