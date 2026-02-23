@@ -1,0 +1,161 @@
+package projects
+
+import (
+	"fmt"
+	"strings"
+	sharedhtml "receipter/frontend/shared/html"
+)
+
+const projectLogsDatastarBundleURL = "https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.0-RC.7/bundles/datastar.js"
+
+func logEntity(entityType, entityID string) string {
+	entityType = strings.TrimSpace(entityType)
+	entityID = strings.TrimSpace(entityID)
+	if entityID == "" {
+		return entityType
+	}
+	return entityType + ":" + entityID
+}
+
+func hasLogPayload(row ProjectLogRow) bool {
+	return strings.TrimSpace(row.BeforeJSON) != "" || strings.TrimSpace(row.AfterJSON) != ""
+}
+
+templ ProjectLogsPage(data ProjectLogsPageData) {
+	<!doctype html>
+	<html data-theme="light">
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+			<title>Project Logs</title>
+			<link rel="stylesheet" href="/assets/app.css"/>
+			<script type="module" src={ projectLogsDatastarBundleURL }></script>
+		</head>
+		<body>
+			@sharedhtml.TopBarWithRole("Project Logs", data.IsAdmin)
+			<main class="container-shell space-y-4">
+				<div class="page-header">
+					<div>
+						<h1 class="text-xl font-bold sm:text-2xl">Project Logs</h1>
+						<p class="text-sm text-base-content/60">{ data.ProjectName } ({ data.ClientName })</p>
+						<div class="mt-1">
+							if data.ProjectStatus == "active" {
+								<span class="badge badge-success">active</span>
+							} else {
+								<span class="badge badge-warning">inactive</span>
+							}
+						</div>
+						</div>
+						<div class="flex gap-2">
+							<a class="btn btn-sm bg-white text-black border border-base-300 hover:bg-base-100" href="/tasker/pallets/progress">Back To Progress</a>
+						</div>
+					</div>
+
+				if data.Message != "" {
+					<div role="alert" class="alert alert-info alert-soft"><span>{ data.Message }</span></div>
+				}
+
+				<section class="page-card">
+					<div class="page-card-body space-y-3">
+						<h2 class="section-title">Full Event History</h2>
+						<div class="hidden lg:block overflow-x-auto">
+							<table class="table table-zebra">
+								<thead>
+									<tr>
+										<th>Time</th>
+										<th>User</th>
+										<th>Action</th>
+										<th>Entity</th>
+										<th>Payload</th>
+									</tr>
+								</thead>
+								<tbody>
+									if len(data.Rows) == 0 {
+										<tr>
+											<td colspan="5" class="text-base-content/60">No logs found for this project.</td>
+										</tr>
+									}
+									for _, row := range data.Rows {
+										<tr>
+											<td class="whitespace-nowrap">{ row.CreatedAtUK }</td>
+											<td>{ row.Actor }</td>
+											<td><span class="font-mono text-xs sm:text-sm">{ row.Action }</span></td>
+											<td><span class="font-mono text-xs">{ logEntity(row.EntityType, row.EntityID) }</span></td>
+											<td>
+												if hasLogPayload(row) {
+													<details>
+														<summary class="cursor-pointer text-sm link link-primary">View</summary>
+														<div class="mt-2 space-y-2">
+															if row.BeforeJSON != "" {
+																<div>
+																	<div class="text-xs text-base-content/60 mb-1">Before</div>
+																	<pre class="text-[11px] whitespace-pre-wrap break-all bg-base-200 rounded p-2">{ row.BeforeJSON }</pre>
+																</div>
+															}
+															if row.AfterJSON != "" {
+																<div>
+																	<div class="text-xs text-base-content/60 mb-1">After</div>
+																	<pre class="text-[11px] whitespace-pre-wrap break-all bg-base-200 rounded p-2">{ row.AfterJSON }</pre>
+																</div>
+															}
+														</div>
+													</details>
+												} else {
+													<span class="text-base-content/40">--</span>
+												}
+											</td>
+										</tr>
+									}
+								</tbody>
+							</table>
+						</div>
+						<div class="grid gap-3 lg:hidden">
+							for _, row := range data.Rows {
+								<div class="card card-border bg-base-100 shadow-sm">
+									<div class="card-body p-4 gap-2">
+										<div class="flex items-start justify-between gap-2">
+											<div class="font-mono text-xs sm:text-sm break-all">{ row.Action }</div>
+											<span class="badge badge-soft">{ row.CreatedAtUK }</span>
+										</div>
+										<div class="text-sm"><span class="text-base-content/60">User: </span>{ row.Actor }</div>
+										<div class="text-sm"><span class="text-base-content/60">Entity: </span><span class="font-mono text-xs">{ logEntity(row.EntityType, row.EntityID) }</span></div>
+										if hasLogPayload(row) {
+											<details>
+												<summary class="cursor-pointer text-sm link link-primary">View payload</summary>
+												<div class="mt-2 space-y-2">
+													if row.BeforeJSON != "" {
+														<div>
+															<div class="text-xs text-base-content/60 mb-1">Before</div>
+															<pre class="text-[11px] whitespace-pre-wrap break-all bg-base-200 rounded p-2">{ row.BeforeJSON }</pre>
+														</div>
+													}
+													if row.AfterJSON != "" {
+														<div>
+															<div class="text-xs text-base-content/60 mb-1">After</div>
+															<pre class="text-[11px] whitespace-pre-wrap break-all bg-base-200 rounded p-2">{ row.AfterJSON }</pre>
+														</div>
+													}
+												</div>
+											</details>
+										}
+									</div>
+								</div>
+							}
+							if len(data.Rows) == 0 {
+								<div class="alert alert-info">
+									<span>No logs found for this project.</span>
+								</div>
+							}
+						</div>
+					</div>
+				</section>
+
+				<div class="text-xs text-base-content/50">
+					Showing { fmt.Sprintf("%d", len(data.Rows)) } events for project ID { fmt.Sprintf("%d", data.ProjectID) }.
+				</div>
+			</main>
+			@sharedhtml.DockWithRole(sharedhtml.NavProjects, data.IsAdmin)
+			@templ.Raw(sharedhtml.CSRFFormScript())
+		</body>
+	</html>
+}

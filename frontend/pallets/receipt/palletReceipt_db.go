@@ -27,6 +27,7 @@ func LoadPageData(ctx context.Context, db *sqlite.DB, palletID int64) (PageData,
 		DamagedQty     int64  `bun:"damaged_qty"`
 		BatchNumber    string `bun:"batch_number"`
 		ExpiryDate     string `bun:"expiry_date"`
+		ExpiryDateISO  string `bun:"expiry_date_iso"`
 		CartonBarcode  string `bun:"carton_barcode"`
 		ItemBarcode    string `bun:"item_barcode"`
 		HasPhoto       bool   `bun:"has_photo"`
@@ -44,14 +45,14 @@ WHERE p.id = ?`, palletID).Scan(ctx, &data.PalletStatus, &data.ProjectID, &data.
 			return err
 		}
 		if err := tx.NewRaw(`
-SELECT pr.id, si.sku, si.description, pr.qty, pr.case_size, pr.damaged, pr.damaged_qty, COALESCE(pr.batch_number, '') AS batch_number,
-       strftime('%d/%m/%Y', pr.expiry_date) AS expiry_date,
+SELECT pr.id, pr.sku, pr.description, pr.qty, pr.case_size, pr.damaged, pr.damaged_qty, COALESCE(pr.batch_number, '') AS batch_number,
+       COALESCE(strftime('%d/%m/%Y', pr.expiry_date), '') AS expiry_date,
+       COALESCE(strftime('%Y-%m-%d', pr.expiry_date), '') AS expiry_date_iso,
        COALESCE(pr.carton_barcode, '') AS carton_barcode,
        COALESCE(pr.item_barcode, '') AS item_barcode,
        CASE WHEN pr.stock_photo_blob IS NOT NULL AND length(pr.stock_photo_blob) > 0 THEN 1 ELSE 0 END AS has_photo,
        pr.no_outer_barcode, pr.no_inner_barcode
 FROM pallet_receipts pr
-JOIN stock_items si ON si.id = pr.stock_item_id
 WHERE pr.pallet_id = ?
   AND pr.project_id = ?
 ORDER BY pr.id DESC`, palletID, data.ProjectID).Scan(ctx, &lines); err != nil {
@@ -104,6 +105,7 @@ ORDER BY pr.id DESC`, palletID, data.ProjectID).Scan(ctx, &lines); err != nil {
 			DamagedQty:      line.DamagedQty,
 			BatchNumber:     line.BatchNumber,
 			ExpiryDateUK:    line.ExpiryDate,
+			ExpiryDateISO:   line.ExpiryDateISO,
 			CartonBarcode:   line.CartonBarcode,
 			ItemBarcode:     line.ItemBarcode,
 			HasPhoto:        hasAnyPhoto,
@@ -150,8 +152,25 @@ func SaveReceipt(ctx context.Context, db *sqlite.DB, auditSvc *audit.Service, us
 	if userID <= 0 {
 		return fmt.Errorf("invalid user id")
 	}
+	input.SKU = strings.TrimSpace(input.SKU)
+	input.Description = strings.TrimSpace(input.Description)
+	if input.SKU == "" {
+		return fmt.Errorf("sku is required")
+	}
+	if input.Qty <= 0 {
+		return fmt.Errorf("qty must be greater than 0")
+	}
 	if input.CaseSize <= 0 {
 		input.CaseSize = 1
+	}
+	if input.DamagedQty < 0 {
+		return fmt.Errorf("damaged qty must be 0 or greater")
+	}
+	if input.Damaged && input.DamagedQty <= 0 {
+		return fmt.Errorf("damaged qty is required when damaged is selected")
+	}
+	if input.DamagedQty > input.Qty {
+		return fmt.Errorf("damaged qty cannot exceed qty")
 	}
 
 	return db.WithWriteTx(ctx, func(ctx context.Context, tx bun.Tx) error {
@@ -175,102 +194,327 @@ WHERE p.id = ?`, input.PalletID).Scan(ctx, &palletStatus, &projectID, &projectSt
 			return fmt.Errorf("invalid pallet status: %s", palletStatus)
 		}
 
-		var stock models.StockItem
-		err := tx.NewSelect().Model(&stock).Where("project_id = ?", projectID).Where("sku = ?", input.SKU).Limit(1).Scan(ctx)
-		if err != nil {
-			if !errors.Is(err, sql.ErrNoRows) {
-				return err
-			}
-			stock = models.StockItem{ProjectID: projectID, SKU: input.SKU, Description: input.Description}
-			if _, err := tx.NewInsert().Model(&stock).Exec(ctx); err != nil {
-				return err
-			}
-		}
-
-		var existing models.PalletReceipt
-		err = tx.NewSelect().Model(&existing).
-			Where("project_id = ?", projectID).
-			Where("pallet_id = ?", input.PalletID).
-			Where("stock_item_id = ?", stock.ID).
-			Where("case_size = ?", input.CaseSize).
-			Where("COALESCE(batch_number, '') = COALESCE(?, '')", input.BatchNumber).
-			Where("date(expiry_date) = date(?)", input.ExpiryDate.Format("2006-01-02")).
-			Limit(1).
-			Scan(ctx)
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		if err := upsertStockItemCatalog(ctx, tx, projectID, input.SKU, input.Description); err != nil {
 			return err
 		}
 
-		if err == nil {
-			before := existing
-			existing.Qty += input.Qty
-			existing.DamagedQty += input.DamagedQty
-			existing.Damaged = existing.Damaged || input.Damaged || existing.DamagedQty > 0
-			existing.ScannedByUserID = userID
-			if existing.DamagedQty > existing.Qty {
-				return fmt.Errorf("damaged qty cannot exceed qty")
-			}
-			if len(input.StockPhotoBlob) > 0 {
-				existing.StockPhotoBlob = input.StockPhotoBlob
-				existing.StockPhotoMIME = input.StockPhotoMIME
-				existing.StockPhotoName = input.StockPhotoName
-			}
-			existing.UpdatedAt = time.Now()
-			if _, err := tx.NewUpdate().Model(&existing).WherePK().Exec(ctx); err != nil {
-				return err
-			}
-			if auditSvc != nil {
-				if err := auditSvc.Write(ctx, tx, userID, "receipt.merge", "pallet_receipts", fmt.Sprintf("%d", existing.ID), before, existing); err != nil {
-					return err
-				}
-			}
-			if err := insertReceiptPhotos(ctx, tx, existing.ID, input.Photos); err != nil {
-				return err
-			}
-			if err := promotePalletToOpenIfCreated(ctx, tx, projectID, input.PalletID); err != nil {
-				return err
-			}
-			return nil
+		segments := []struct {
+			qty     int64
+			damaged bool
+		}{}
+		nonDamagedQty := input.Qty - input.DamagedQty
+		if nonDamagedQty > 0 {
+			segments = append(segments, struct {
+				qty     int64
+				damaged bool
+			}{qty: nonDamagedQty, damaged: false})
+		}
+		if input.DamagedQty > 0 {
+			segments = append(segments, struct {
+				qty     int64
+				damaged bool
+			}{qty: input.DamagedQty, damaged: true})
+		}
+		if len(segments) == 0 {
+			return fmt.Errorf("qty must be greater than 0")
 		}
 
-		receipt := models.PalletReceipt{
-			ProjectID:       projectID,
-			PalletID:        input.PalletID,
-			StockItemID:     stock.ID,
-			ScannedByUserID: userID,
-			Qty:             input.Qty,
-			CaseSize:        input.CaseSize,
-			Damaged:         input.Damaged || input.DamagedQty > 0,
-			DamagedQty:      input.DamagedQty,
-			BatchNumber:     input.BatchNumber,
-			ExpiryDate:      input.ExpiryDate,
-			CartonBarcode:   input.CartonBarcode,
-			ItemBarcode:     input.ItemBarcode,
-			StockPhotoBlob:  input.StockPhotoBlob,
-			StockPhotoMIME:  input.StockPhotoMIME,
-			StockPhotoName:  input.StockPhotoName,
-			NoOuterBarcode:  input.NoOuterBarcode,
-			NoInnerBarcode:  input.NoInnerBarcode,
-		}
-		if receipt.DamagedQty > receipt.Qty {
-			return fmt.Errorf("damaged qty cannot exceed qty")
-		}
-		if _, err := tx.NewInsert().Model(&receipt).Exec(ctx); err != nil {
-			return err
-		}
-		if auditSvc != nil {
-			if err := auditSvc.Write(ctx, tx, userID, "receipt.create", "pallet_receipts", fmt.Sprintf("%d", receipt.ID), nil, receipt); err != nil {
+		attachMedia := true
+		for _, segment := range segments {
+			lineInput := input
+			lineInput.Qty = segment.qty
+			lineInput.Damaged = segment.damaged
+			if segment.damaged {
+				lineInput.DamagedQty = segment.qty
+			} else {
+				lineInput.DamagedQty = 0
+			}
+			if !attachMedia {
+				lineInput.StockPhotoBlob = nil
+				lineInput.StockPhotoMIME = ""
+				lineInput.StockPhotoName = ""
+				lineInput.Photos = nil
+			}
+
+			if err := upsertReceiptLine(ctx, tx, auditSvc, userID, projectID, input.SKU, input.Description, lineInput); err != nil {
 				return err
 			}
+			attachMedia = false
 		}
-		if err := insertReceiptPhotos(ctx, tx, receipt.ID, input.Photos); err != nil {
-			return err
-		}
+
 		if err := promotePalletToOpenIfCreated(ctx, tx, projectID, input.PalletID); err != nil {
 			return err
 		}
 		return nil
 	})
+}
+
+func upsertReceiptLine(ctx context.Context, tx bun.Tx, auditSvc *audit.Service, userID, projectID int64, sku, description string, input ReceiptInput) error {
+	var existing models.PalletReceipt
+	query := tx.NewSelect().
+		Model(&existing).
+		Where("project_id = ?", projectID).
+		Where("pallet_id = ?", input.PalletID).
+		Where("sku = ?", sku).
+		Where("case_size = ?", input.CaseSize).
+		Where("damaged = ?", input.Damaged).
+		Where("COALESCE(batch_number, '') = COALESCE(?, '')", input.BatchNumber)
+	if input.ExpiryDate == nil {
+		query = query.Where("expiry_date IS NULL")
+	} else {
+		query = query.Where("date(expiry_date) = date(?)", input.ExpiryDate.Format("2006-01-02"))
+	}
+	err := query.Limit(1).Scan(ctx)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+
+	if err == nil {
+		before := existing
+		existing.Qty += input.Qty
+		existing.SKU = sku
+		if description != "" || existing.Description == "" {
+			existing.Description = description
+		}
+		if input.Damaged {
+			existing.Damaged = true
+			existing.DamagedQty = existing.Qty
+		} else {
+			existing.Damaged = false
+			existing.DamagedQty = 0
+		}
+		existing.ScannedByUserID = userID
+		if len(input.StockPhotoBlob) > 0 {
+			existing.StockPhotoBlob = input.StockPhotoBlob
+			existing.StockPhotoMIME = input.StockPhotoMIME
+			existing.StockPhotoName = input.StockPhotoName
+		}
+		existing.UpdatedAt = time.Now()
+		if _, err := tx.NewUpdate().Model(&existing).WherePK().Exec(ctx); err != nil {
+			return err
+		}
+		if auditSvc != nil {
+			if err := auditSvc.Write(ctx, tx, userID, "receipt.merge", "pallet_receipts", fmt.Sprintf("%d", existing.ID), before, existing); err != nil {
+				return err
+			}
+		}
+		if err := insertReceiptPhotos(ctx, tx, existing.ID, input.Photos); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	damagedQty := int64(0)
+	if input.Damaged {
+		damagedQty = input.Qty
+	}
+	receipt := models.PalletReceipt{
+		ProjectID:       projectID,
+		PalletID:        input.PalletID,
+		SKU:             sku,
+		Description:     description,
+		ScannedByUserID: userID,
+		Qty:             input.Qty,
+		CaseSize:        input.CaseSize,
+		Damaged:         input.Damaged,
+		DamagedQty:      damagedQty,
+		BatchNumber:     input.BatchNumber,
+		ExpiryDate:      input.ExpiryDate,
+		CartonBarcode:   input.CartonBarcode,
+		ItemBarcode:     input.ItemBarcode,
+		StockPhotoBlob:  input.StockPhotoBlob,
+		StockPhotoMIME:  input.StockPhotoMIME,
+		StockPhotoName:  input.StockPhotoName,
+		NoOuterBarcode:  input.NoOuterBarcode,
+		NoInnerBarcode:  input.NoInnerBarcode,
+	}
+	if _, err := tx.NewInsert().Model(&receipt).Exec(ctx); err != nil {
+		return err
+	}
+	if auditSvc != nil {
+		if err := auditSvc.Write(ctx, tx, userID, "receipt.create", "pallet_receipts", fmt.Sprintf("%d", receipt.ID), nil, receipt); err != nil {
+			return err
+		}
+	}
+	if err := insertReceiptPhotos(ctx, tx, receipt.ID, input.Photos); err != nil {
+		return err
+	}
+	return nil
+}
+
+type ReceiptLineUpdateInput struct {
+	PalletID    int64
+	ReceiptID   int64
+	SKU         string
+	Description string
+	Qty         int64
+	CaseSize    int64
+	Damaged     bool
+	DamagedQty  int64
+	BatchNumber string
+	ExpiryDate  *time.Time
+}
+
+func UpdateReceiptLine(ctx context.Context, db *sqlite.DB, auditSvc *audit.Service, userID int64, input ReceiptLineUpdateInput) error {
+	if userID <= 0 {
+		return fmt.Errorf("invalid user id")
+	}
+	if input.ReceiptID <= 0 {
+		return fmt.Errorf("invalid receipt id")
+	}
+	if input.Qty <= 0 {
+		return fmt.Errorf("qty must be greater than 0")
+	}
+	if input.CaseSize <= 0 {
+		return fmt.Errorf("case size must be greater than 0")
+	}
+	if input.Damaged {
+		input.DamagedQty = input.Qty
+	} else {
+		input.DamagedQty = 0
+	}
+	if strings.TrimSpace(input.SKU) == "" {
+		return fmt.Errorf("sku is required")
+	}
+	input.SKU = strings.TrimSpace(input.SKU)
+	input.Description = strings.TrimSpace(input.Description)
+
+	return db.WithWriteTx(ctx, func(ctx context.Context, tx bun.Tx) error {
+		var palletStatus, projectStatus string
+		var projectID int64
+		if err := tx.NewRaw(`
+SELECT p.status, p.project_id, pj.status
+FROM pallets p
+JOIN projects pj ON pj.id = p.project_id
+WHERE p.id = ?`, input.PalletID).Scan(ctx, &palletStatus, &projectID, &projectStatus); err != nil {
+			return err
+		}
+		if !CanManageReceiptLines(projectStatus, palletStatus) {
+			return fmt.Errorf("receipt lines are read-only unless project is active and pallet is open")
+		}
+
+		var existing models.PalletReceipt
+		if err := tx.NewSelect().
+			Model(&existing).
+			Where("id = ?", input.ReceiptID).
+			Where("pallet_id = ?", input.PalletID).
+			Where("project_id = ?", projectID).
+			Limit(1).
+			Scan(ctx); err != nil {
+			return err
+		}
+
+		if err := upsertStockItemCatalog(ctx, tx, projectID, input.SKU, input.Description); err != nil {
+			return err
+		}
+
+		before := existing
+		existing.SKU = input.SKU
+		existing.Description = input.Description
+		existing.ScannedByUserID = userID
+		existing.Qty = input.Qty
+		existing.CaseSize = input.CaseSize
+		existing.Damaged = input.Damaged || input.DamagedQty > 0
+		existing.DamagedQty = input.DamagedQty
+		existing.BatchNumber = input.BatchNumber
+		existing.ExpiryDate = input.ExpiryDate
+		existing.UpdatedAt = time.Now()
+
+		if _, err := tx.NewUpdate().Model(&existing).WherePK().Exec(ctx); err != nil {
+			return err
+		}
+		if auditSvc != nil {
+			if err := auditSvc.Write(ctx, tx, userID, "receipt.update", "pallet_receipts", fmt.Sprintf("%d", existing.ID), before, existing); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func DeleteReceiptLine(ctx context.Context, db *sqlite.DB, auditSvc *audit.Service, userID, palletID, receiptID int64) error {
+	if userID <= 0 {
+		return fmt.Errorf("invalid user id")
+	}
+	if receiptID <= 0 {
+		return fmt.Errorf("invalid receipt id")
+	}
+
+	return db.WithWriteTx(ctx, func(ctx context.Context, tx bun.Tx) error {
+		var palletStatus, projectStatus string
+		var projectID int64
+		if err := tx.NewRaw(`
+SELECT p.status, p.project_id, pj.status
+FROM pallets p
+JOIN projects pj ON pj.id = p.project_id
+WHERE p.id = ?`, palletID).Scan(ctx, &palletStatus, &projectID, &projectStatus); err != nil {
+			return err
+		}
+		if !CanManageReceiptLines(projectStatus, palletStatus) {
+			return fmt.Errorf("receipt lines are read-only unless project is active and pallet is open")
+		}
+
+		var existing models.PalletReceipt
+		if err := tx.NewSelect().
+			Model(&existing).
+			Where("id = ?", receiptID).
+			Where("pallet_id = ?", palletID).
+			Where("project_id = ?", projectID).
+			Limit(1).
+			Scan(ctx); err != nil {
+			return err
+		}
+
+		if _, err := tx.NewDelete().Model(&existing).WherePK().Exec(ctx); err != nil {
+			return err
+		}
+		if auditSvc != nil {
+			if err := auditSvc.Write(ctx, tx, userID, "receipt.delete", "pallet_receipts", fmt.Sprintf("%d", existing.ID), existing, nil); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func upsertStockItemCatalog(ctx context.Context, tx bun.Tx, projectID int64, sku, description string) error {
+	sku = strings.TrimSpace(sku)
+	description = strings.TrimSpace(description)
+	if sku == "" {
+		return nil
+	}
+
+	var stock models.StockItem
+	err := tx.NewSelect().
+		Model(&stock).
+		Where("project_id = ?", projectID).
+		Where("sku = ?", sku).
+		Limit(1).
+		Scan(ctx)
+	if err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		stock = models.StockItem{
+			ProjectID:   projectID,
+			SKU:         sku,
+			Description: description,
+		}
+		if _, err := tx.NewInsert().Model(&stock).Exec(ctx); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	if description != "" && stock.Description != description {
+		stock.Description = description
+		stock.UpdatedAt = time.Now()
+		if _, err := tx.NewUpdate().Model(&stock).Column("description", "updated_at").WherePK().Exec(ctx); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func promotePalletToOpenIfCreated(ctx context.Context, tx bun.Tx, projectID, palletID int64) error {

@@ -55,18 +55,24 @@ func TestLoadPalletContent_IncludesScannerUsername(t *testing.T) {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO pallets (id, project_id, status, created_at) VALUES (1, 1, 'open', CURRENT_TIMESTAMP)`); err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO stock_items (id, project_id, sku, description, created_at, updated_at) VALUES (1, 1, 'SKU1', 'Item 1', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`); err != nil {
-			return err
-		}
 		if _, err := tx.ExecContext(ctx, `
 INSERT INTO pallet_receipts (
-	project_id, pallet_id, stock_item_id, scanned_by_user_id, qty, damaged, damaged_qty,
+	project_id, pallet_id, sku, description, scanned_by_user_id, qty, damaged, damaged_qty,
 	batch_number, expiry_date, carton_barcode, item_barcode,
 	no_outer_barcode, no_inner_barcode, created_at, updated_at
 ) VALUES (
-	1, 1, 1, 2, 5, 0, 0,
+	1, 1, 'SKU1', 'Item 1', 2, 5, 0, 0,
 	'B-1', '2028-03-12', '', '',
 	0, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+)`); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `
+INSERT INTO audit_logs (user_id, action, entity_type, entity_id, before_json, after_json, created_at)
+VALUES (
+	2, 'receipt.create', 'pallet_receipts', '99', '',
+	'{"ID":99,"PalletID":1,"Qty":5,"CaseSize":1,"Damaged":false,"BatchNumber":"B-1","ExpiryDate":"2028-03-12T00:00:00Z"}',
+	CURRENT_TIMESTAMP
 )`); err != nil {
 			return err
 		}
@@ -88,6 +94,36 @@ INSERT INTO pallet_receipts (
 	}
 	if lines[0].ScannedBy != "scanner1" {
 		t.Fatalf("expected scanner1, got %q", lines[0].ScannedBy)
+	}
+	if lines[0].CaseSize != 1 {
+		t.Fatalf("expected case size 1, got %d", lines[0].CaseSize)
+	}
+	if lines[0].Damaged {
+		t.Fatalf("expected damaged=false for seeded line")
+	}
+
+	events, err := LoadPalletEventLog(context.Background(), db, 1)
+	if err != nil {
+		t.Fatalf("load pallet event log: %v", err)
+	}
+	if len(events) < 2 {
+		t.Fatalf("expected at least 2 events (create + receipt), got %d", len(events))
+	}
+	foundReceiptCreate := false
+	foundPalletCreate := false
+	for _, event := range events {
+		if event.Action == "receipt.create" {
+			foundReceiptCreate = true
+		}
+		if event.Action == "pallet.create" {
+			foundPalletCreate = true
+		}
+	}
+	if !foundReceiptCreate {
+		t.Fatalf("expected receipt.create event in pallet history")
+	}
+	if !foundPalletCreate {
+		t.Fatalf("expected pallet.create event in pallet history")
 	}
 }
 

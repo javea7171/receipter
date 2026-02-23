@@ -27,6 +27,13 @@ func scannerName(scannedBy string) string {
 	return scannedBy
 }
 
+func damagedText(damaged bool) string {
+	if damaged {
+		return "Yes"
+	}
+	return "No"
+}
+
 func contentRefreshURL(palletID int64) string {
 	q := url.Values{}
 	q.Set("fragment", "1")
@@ -37,7 +44,7 @@ func contentAutoRefreshExpr(palletID int64) string {
 	return fmt.Sprintf("@get('%s', {openWhenHidden: true})", contentRefreshURL(palletID))
 }
 
-templ PalletContentLabelPage(palletID int64, status string, lines []ContentLine) {
+templ PalletContentLabelPage(palletID int64, projectID int64, status string, canExport bool, lines []ContentLine, events []PalletEvent) {
 	<!doctype html>
 	<html data-theme="light">
 		<head>
@@ -48,12 +55,12 @@ templ PalletContentLabelPage(palletID int64, status string, lines []ContentLine)
 			<script type="module" src={ contentDatastarBundleURL }></script>
 		</head>
 		<body>
-			@PalletContentLabelFragment(palletID, status, lines)
+			@PalletContentLabelFragment(palletID, projectID, status, canExport, lines, events)
 		</body>
 	</html>
 }
 
-templ PalletContentLabelFragment(palletID int64, status string, lines []ContentLine) {
+templ PalletContentLabelFragment(palletID int64, projectID int64, status string, canExport bool, lines []ContentLine, events []PalletEvent) {
 	<div
 		id="pallet-content-page"
 		data-signals:lastScrollY="0"
@@ -68,6 +75,9 @@ templ PalletContentLabelFragment(palletID int64, status string, lines []ContentL
 					</div>
 				</div>
 				<div class="flex gap-2">
+					if canExport {
+						<a class="btn btn-soft btn-secondary btn-sm" href={ fmt.Sprintf("/tasker/exports/pallet/%d.csv?project_id=%d", palletID, projectID) }>Export CSV</a>
+					}
 					<a class="btn btn-soft btn-primary btn-sm" href={ fmt.Sprintf("/tasker/pallets/%d/receipt", palletID) }>Receipt</a>
 					<a class="btn btn-ghost btn-sm" href="/tasker/pallets/progress">Back</a>
 				</div>
@@ -82,6 +92,8 @@ templ PalletContentLabelFragment(palletID int64, status string, lines []ContentL
 									<th>SKU</th>
 									<th>Description</th>
 									<th>Qty</th>
+									<th>Case Size</th>
+									<th>Damaged</th>
 									<th>Batch</th>
 									<th>Expiry</th>
 									<th>Scanned By</th>
@@ -90,7 +102,7 @@ templ PalletContentLabelFragment(palletID int64, status string, lines []ContentL
 							<tbody>
 								if len(lines) == 0 {
 									<tr>
-										<td colspan="6" class="text-base-content/60">No receipt lines yet.</td>
+										<td colspan="8" class="text-base-content/60">No receipt lines yet.</td>
 									</tr>
 								}
 								for _, line := range lines {
@@ -98,6 +110,8 @@ templ PalletContentLabelFragment(palletID int64, status string, lines []ContentL
 										<td class="font-mono font-semibold">{ line.SKU }</td>
 										<td>{ line.Description }</td>
 										<td class="font-medium">{ line.Qty }</td>
+										<td>{ line.CaseSize }</td>
+										<td>{ damagedText(line.Damaged) }</td>
 										<td>{ line.BatchNumber }</td>
 										<td>{ line.ExpiryDateUK }</td>
 										<td>{ scannerName(line.ScannedBy) }</td>
@@ -118,6 +132,10 @@ templ PalletContentLabelFragment(palletID int64, status string, lines []ContentL
 										<span class="badge badge-neutral shrink-0">Qty { line.Qty }</span>
 									</div>
 									<div class="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+										<div class="text-base-content/60">Case Size</div>
+										<div>{ line.CaseSize }</div>
+										<div class="text-base-content/60">Damaged</div>
+										<div>{ damagedText(line.Damaged) }</div>
 										<div class="text-base-content/60">Batch</div>
 										<div>{ line.BatchNumber }</div>
 										<div class="text-base-content/60">Expiry</div>
@@ -131,6 +149,58 @@ templ PalletContentLabelFragment(palletID int64, status string, lines []ContentL
 						if len(lines) == 0 {
 							<div class="alert alert-info">
 								<span>No receipt lines yet.</span>
+							</div>
+						}
+					</div>
+				</div>
+			</section>
+
+			<section class="page-card">
+				<div class="page-card-body">
+					<h2 class="section-title">Event History</h2>
+					<div class="hidden lg:block overflow-x-auto">
+						<table class="table table-zebra">
+							<thead>
+								<tr>
+									<th>Time</th>
+									<th>User</th>
+									<th>Action</th>
+									<th>Details</th>
+								</tr>
+							</thead>
+							<tbody>
+								if len(events) == 0 {
+									<tr>
+										<td colspan="4" class="text-base-content/60">No events recorded.</td>
+									</tr>
+								}
+								for _, event := range events {
+									<tr>
+										<td class="whitespace-nowrap">{ event.TimestampUK }</td>
+										<td>{ event.Actor }</td>
+										<td><span class="font-mono text-xs sm:text-sm">{ event.Action }</span></td>
+										<td>{ event.Details }</td>
+									</tr>
+								}
+							</tbody>
+						</table>
+					</div>
+					<div class="grid gap-3 lg:hidden">
+						for _, event := range events {
+							<div class="card card-border bg-base-100 shadow-sm">
+								<div class="card-body p-4 gap-2">
+									<div class="flex items-start justify-between gap-2">
+										<div class="font-mono text-xs sm:text-sm break-all">{ event.Action }</div>
+										<span class="badge badge-soft">{ event.TimestampUK }</span>
+									</div>
+									<div class="text-sm"><span class="text-base-content/60">User: </span>{ event.Actor }</div>
+									<div class="text-sm">{ event.Details }</div>
+								</div>
+							</div>
+						}
+						if len(events) == 0 {
+							<div class="alert alert-info">
+								<span>No events recorded.</span>
 							</div>
 						}
 					</div>

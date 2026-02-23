@@ -6,6 +6,36 @@ import (
 	sharedhtml "receipter/frontend/shared/html"
 )
 
+const receiptDatastarBundleURL = "https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.0-RC.7/bundles/datastar.js"
+
+func receiptLineEditTrigger(canManage bool) string {
+	if canManage {
+		return "1"
+	}
+	return "0"
+}
+
+func receiptLineRowClass(canManage bool) string {
+	if canManage {
+		return "cursor-pointer transition-colors hover:bg-base-200/60"
+	}
+	return ""
+}
+
+func receiptLineCardClass(canManage bool) string {
+	if canManage {
+		return "card card-border bg-base-100 shadow-sm cursor-pointer transition-colors hover:bg-base-200/40"
+	}
+	return "card card-border bg-base-100 shadow-sm"
+}
+
+func receiptBoolData(v bool) string {
+	if v {
+		return "1"
+	}
+	return "0"
+}
+
 templ PalletReceiptPage(data PageData) {
 	<!doctype html>
 	<html data-theme="light">
@@ -14,6 +44,7 @@ templ PalletReceiptPage(data PageData) {
 			<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
 			<title>Pallet { fmt.Sprintf("P%08d", data.PalletID) } Receipt</title>
 			<link rel="stylesheet" href="/assets/app.css"/>
+			<script type="module" src={ receiptDatastarBundleURL }></script>
 		</head>
 		<body>
 			@sharedhtml.TopBarWithRole("Receipt", data.IsAdmin)
@@ -77,6 +108,9 @@ templ PalletReceiptPage(data PageData) {
 					<section class="page-card">
 						<div class="page-card-body space-y-3">
 							<h2 class="section-title">Recorded Lines</h2>
+							if data.CanManageLines {
+								<p class="text-sm text-base-content/60">Click a line to edit or delete it.</p>
+							}
 
 							<!-- Desktop table -->
 							<div class="hidden lg:block overflow-x-auto">
@@ -95,14 +129,25 @@ templ PalletReceiptPage(data PageData) {
 									</thead>
 									<tbody>
 										for _, line := range data.Lines {
-												<tr>
+												<tr
+													class={ receiptLineRowClass(data.CanManageLines) }
+													data-line-edit-trigger={ receiptLineEditTrigger(data.CanManageLines) }
+													data-pallet-id={ fmt.Sprintf("%d", data.PalletID) }
+													data-receipt-id={ fmt.Sprintf("%d", line.ID) }
+													data-sku={ line.SKU }
+													data-description={ line.Description }
+													data-qty={ fmt.Sprintf("%d", line.Qty) }
+													data-case-size={ fmt.Sprintf("%d", line.CaseSize) }
+													data-damaged={ receiptBoolData(line.Damaged) }
+													data-batch={ line.BatchNumber }
+													data-expiry={ line.ExpiryDateISO }>
 													<td class="font-mono font-semibold">{ line.SKU }</td>
 													<td>{ line.Description }</td>
 													<td class="font-medium">{ line.Qty }</td>
 													<td class="font-medium">{ line.CaseSize }</td>
 													<td>
 														if line.Damaged {
-															<span class="badge badge-warning">Yes ({ line.DamagedQty })</span>
+															<span class="badge badge-warning">Yes</span>
 													} else {
 														<span class="badge badge-success badge-soft">No</span>
 													}
@@ -134,7 +179,18 @@ templ PalletReceiptPage(data PageData) {
 							<!-- Mobile cards -->
 							<div class="grid gap-3 lg:hidden">
 								for _, line := range data.Lines {
-									<div class="card card-border bg-base-100 shadow-sm">
+									<div
+										class={ receiptLineCardClass(data.CanManageLines) }
+										data-line-edit-trigger={ receiptLineEditTrigger(data.CanManageLines) }
+										data-pallet-id={ fmt.Sprintf("%d", data.PalletID) }
+										data-receipt-id={ fmt.Sprintf("%d", line.ID) }
+										data-sku={ line.SKU }
+										data-description={ line.Description }
+										data-qty={ fmt.Sprintf("%d", line.Qty) }
+										data-case-size={ fmt.Sprintf("%d", line.CaseSize) }
+										data-damaged={ receiptBoolData(line.Damaged) }
+										data-batch={ line.BatchNumber }
+										data-expiry={ line.ExpiryDateISO }>
 										<div class="card-body p-4 gap-2">
 											<div class="flex items-start justify-between gap-2">
 												<div class="min-w-0">
@@ -153,7 +209,7 @@ templ PalletReceiptPage(data PageData) {
 												<div class="text-base-content/60">Damaged</div>
 												<div>
 													if line.Damaged {
-														<span class="text-warning font-semibold">Yes ({ fmt.Sprintf("%d", line.DamagedQty) })</span>
+														<span class="text-warning font-semibold">Yes</span>
 													} else {
 														No
 													}
@@ -176,6 +232,67 @@ templ PalletReceiptPage(data PageData) {
 									</div>
 								}
 							</div>
+							if data.CanManageLines {
+								<dialog id="receipt-line-editor-modal" class="modal">
+									<div class="modal-box max-w-2xl">
+										<div class="flex items-start justify-between gap-3">
+											<div>
+												<h3 class="text-lg font-semibold">Edit Receipt Line</h3>
+												<p class="text-sm text-base-content/60">Update values or delete this line.</p>
+											</div>
+											<button class="btn btn-ghost btn-sm" type="button" onclick="closeReceiptLineEditor()">Close</button>
+										</div>
+
+										<form id="receipt-line-editor-form" method="post" class="mt-4 space-y-4">
+											<div class="grid gap-3 sm:grid-cols-2">
+												<fieldset class="fieldset">
+													<legend class="fieldset-legend">SKU</legend>
+													<input id="line_edit_sku" class="input input-bordered" name="sku" required/>
+												</fieldset>
+												<fieldset class="fieldset">
+													<legend class="fieldset-legend">Description</legend>
+													<input id="line_edit_description" class="input input-bordered" name="description"/>
+												</fieldset>
+												<fieldset class="fieldset">
+													<legend class="fieldset-legend">Qty</legend>
+													<input id="line_edit_qty" class="input input-bordered" type="number" name="qty" min="1" required/>
+												</fieldset>
+												<fieldset class="fieldset">
+													<legend class="fieldset-legend">Case Size</legend>
+													<input id="line_edit_case_size" class="input input-bordered" type="number" name="case_size" min="1" required/>
+												</fieldset>
+												<fieldset class="fieldset">
+													<legend class="fieldset-legend">Batch</legend>
+													<input id="line_edit_batch" class="input input-bordered" name="batch_number"/>
+												</fieldset>
+												<fieldset class="fieldset">
+													<legend class="fieldset-legend">Expiry</legend>
+													<input id="line_edit_expiry" class="input input-bordered" type="date" name="expiry_date"/>
+												</fieldset>
+											</div>
+
+											<div class="card card-border bg-base-100">
+												<div class="card-body p-3 gap-2">
+													<label class="fieldset-label cursor-pointer justify-start gap-3">
+														<input id="line_edit_damaged" class="checkbox checkbox-warning" type="checkbox" name="damaged" value="1"/>
+														<span class="label-text font-medium">Damaged</span>
+													</label>
+												</div>
+											</div>
+
+											<div class="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
+												<button class="btn btn-ghost" type="button" onclick="closeReceiptLineEditor()">Cancel</button>
+												<button class="btn btn-primary" type="submit">Save Changes</button>
+											</div>
+										</form>
+
+										<form id="receipt-line-delete-form" method="post" class="mt-3">
+											<button class="btn btn-error btn-outline w-full" type="submit" onclick="return confirm('Delete this receipt line? This cannot be undone.');">Delete Line</button>
+										</form>
+									</div>
+									<form method="dialog" class="modal-backdrop"><button type="submit">close</button></form>
+								</dialog>
+							}
 						</div>
 					</section>
 				}
@@ -188,30 +305,39 @@ templ PalletReceiptPage(data PageData) {
 }
 
 templ ReceiptFormFields(canEdit bool) {
-	<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-		<fieldset class="fieldset w-full">
-			<legend class="fieldset-legend text-base font-medium">SKU</legend>
-			<input class="input input-bordered input-lg w-full font-mono" name="sku" required disabled?={ !canEdit } placeholder="Enter SKU"/>
-		</fieldset>
-		<fieldset class="fieldset w-full sm:col-span-2 lg:col-span-2">
-			<legend class="fieldset-legend text-base font-medium">Description</legend>
-			<input class="input input-bordered input-lg w-full" name="description" disabled?={ !canEdit } placeholder="Product description"/>
-		</fieldset>
+		<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+			<fieldset class="fieldset w-full">
+				<legend class="fieldset-legend text-base font-medium">SKU</legend>
+				<input
+					id="sku_input"
+					class="input input-bordered input-lg w-full font-mono"
+					name="sku"
+					required
+					disabled?={ !canEdit }
+					placeholder="Enter SKU"
+					autocomplete="off"
+					data-on:input__debounce.180ms="@get('/tasker/api/stock/search/options?q=' + encodeURIComponent(el.value), {openWhenHidden: true})"/>
+				<ul id="sku_suggestions" class="menu menu-sm mt-2 hidden max-h-56 w-full overflow-y-auto rounded-box border border-base-300 bg-base-100 p-1 shadow-md"></ul>
+			</fieldset>
+			<fieldset class="fieldset w-full sm:col-span-2 lg:col-span-2">
+				<legend class="fieldset-legend text-base font-medium">Description</legend>
+				<input id="description_input" class="input input-bordered input-lg w-full" name="description" disabled?={ !canEdit } placeholder="Product description"/>
+			</fieldset>
 			<fieldset class="fieldset w-full">
 				<legend class="fieldset-legend text-base font-medium">Qty</legend>
-				<input class="input input-bordered input-lg w-full" type="number" name="qty" min="1" required disabled?={ !canEdit } placeholder="0"/>
+				<input id="qty_input" class="input input-bordered input-lg w-full" type="number" name="qty" min="1" required disabled?={ !canEdit } placeholder="0"/>
 			</fieldset>
 			<fieldset class="fieldset w-full">
 				<legend class="fieldset-legend text-base font-medium">Case Size</legend>
-				<input class="input input-bordered input-lg w-full" type="number" name="case_size" min="1" required value="1" disabled?={ !canEdit } placeholder="Units per case"/>
+				<input id="case_size_input" class="input input-bordered input-lg w-full" type="number" name="case_size" min="1" required value="1" disabled?={ !canEdit } placeholder="Units per case"/>
 			</fieldset>
 			<fieldset class="fieldset w-full">
 				<legend class="fieldset-legend text-base font-medium">Batch</legend>
-				<input class="input input-bordered input-lg w-full" name="batch_number" disabled?={ !canEdit } placeholder="Batch number"/>
+				<input id="batch_input" class="input input-bordered input-lg w-full" name="batch_number" disabled?={ !canEdit } placeholder="Batch number"/>
 		</fieldset>
 		<fieldset class="fieldset w-full">
 			<legend class="fieldset-legend text-base font-medium">Expiry</legend>
-			<input class="input input-bordered input-lg w-full" type="date" name="expiry_date" required disabled?={ !canEdit }/>
+			<input id="expiry_input" class="input input-bordered input-lg w-full" type="date" name="expiry_date" disabled?={ !canEdit }/>
 		</fieldset>
 	</div>
 

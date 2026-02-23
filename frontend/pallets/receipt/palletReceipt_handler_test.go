@@ -129,6 +129,34 @@ func TestCreateReceiptCommandHandler_InvalidCaseSizeRedirectsError(t *testing.T)
 	}
 }
 
+func TestCreateReceiptCommandHandler_BlankExpiryAccepted(t *testing.T) {
+	db := openTestDB(t)
+	seedPallet(t, db, 13)
+	handler := CreateReceiptCommandHandler(db, nil)
+
+	req := newReceiptFormRequestWithSession("13", url.Values{
+		"sku":         {"SKU-NO-EXP"},
+		"description": {"No expiry"},
+		"qty":         {"2"},
+		"case_size":   {"1"},
+	})
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusSeeOther {
+		t.Fatalf("expected 303 redirect, got %d", rr.Code)
+	}
+	location := rr.Header().Get("Location")
+	if location != "/tasker/pallets/13/receipt" {
+		t.Fatalf("unexpected redirect location: %s", location)
+	}
+
+	rows, qty := countReceiptRows(t, db, 13)
+	if rows != 1 || qty != 2 {
+		t.Fatalf("expected 1 saved row with qty 2, got rows=%d qty=%d", rows, qty)
+	}
+}
+
 func TestCreateReceiptCommandHandler_InvalidMultipartRedirectsError(t *testing.T) {
 	db := openTestDB(t)
 	handler := CreateReceiptCommandHandler(db, nil)

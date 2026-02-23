@@ -127,41 +127,26 @@ func CreateProjectCommandHandler(db *sqlite.DB, sessionCache *cache.UserSessionC
 	}
 }
 
-func ActivateProjectCommandHandler(db *sqlite.DB, sessionCache *cache.UserSessionCache, auditSvc *audit.Service) http.HandlerFunc {
+func ActivateProjectCommandHandler(db *sqlite.DB, sessionCache *cache.UserSessionCache, _ *audit.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		projectID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 		if err != nil || projectID <= 0 {
 			http.Redirect(w, r, "/tasker/projects?status="+url.QueryEscape("Invalid project id"), http.StatusSeeOther)
 			return
 		}
-		project, err := projectinfra.LoadByID(r.Context(), db, projectID)
-		if err != nil {
+		if _, err := projectinfra.LoadByID(r.Context(), db, projectID); err != nil {
 			http.Redirect(w, r, "/tasker/projects?status="+url.QueryEscape("Project not found"), http.StatusSeeOther)
 			return
 		}
 
 		session, ok := sessioncontext.GetSessionFromContext(r.Context())
-		var sessionUserID int64
-		var beforeActiveProjectID *int64
 		if ok {
-			sessionUserID = session.UserID
-			beforeActiveProjectID = session.ActiveProjectID
-			if err := setSessionActiveProject(r.Context(), db, sessionCache, session, &projectID); err != nil {
-				http.Redirect(w, r, "/tasker/projects?status="+url.QueryEscape("Failed to set active project"), http.StatusSeeOther)
-				return
+			if !sameNullableProjectID(session.ActiveProjectID, &projectID) {
+				if err := setSessionActiveProject(r.Context(), db, sessionCache, session, &projectID); err != nil {
+					http.Redirect(w, r, "/tasker/projects?status="+url.QueryEscape("Failed to set active project"), http.StatusSeeOther)
+					return
+				}
 			}
-		}
-		before := map[string]any{
-			"active_project_id": nullableProjectID(beforeActiveProjectID),
-		}
-		after := map[string]any{
-			"active_project_id": projectID,
-			"project_name":      project.Name,
-			"project_status":    project.Status,
-		}
-		if err := writeProjectAudit(r.Context(), db, auditSvc, sessionUserID, "project.activate", strconv.FormatInt(projectID, 10), before, after); err != nil {
-			http.Redirect(w, r, "/tasker/projects?status="+url.QueryEscape("Project activated, but failed to write audit log"), http.StatusSeeOther)
-			return
 		}
 
 		http.Redirect(w, r, "/tasker/pallets/progress", http.StatusSeeOther)
@@ -256,11 +241,11 @@ func writeProjectAudit(ctx context.Context, db *sqlite.DB, auditSvc *audit.Servi
 	})
 }
 
-func nullableProjectID(projectID *int64) any {
-	if projectID == nil {
-		return nil
+func sameNullableProjectID(a, b *int64) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
 	}
-	return *projectID
+	return *a == *b
 }
 
 func hasRole(userRoles []string, role string) bool {

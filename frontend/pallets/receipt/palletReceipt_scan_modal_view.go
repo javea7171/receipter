@@ -52,6 +52,11 @@ function closeScanModal() {
   setScanStatus("Camera idle");
 }
 
+function closeReceiptLineEditor() {
+  const modal = document.getElementById("receipt-line-editor-modal");
+  if (modal && modal.open) modal.close();
+}
+
 async function startScanner() {
   if (quaggaRunning) return;
   await loadQuaggaScript();
@@ -110,6 +115,92 @@ function stopScanner() {
       damagedFields.classList.toggle("hidden");
     });
   }
+
+  const skuInput = document.getElementById("sku_input");
+  const suggestions = document.getElementById("sku_suggestions");
+  const qtyInput = document.getElementById("qty_input");
+  const caseSizeInput = document.getElementById("case_size_input");
+  const batchInput = document.getElementById("batch_input");
+  const expiryInput = document.getElementById("expiry_input");
+  const lineEditorModal = document.getElementById("receipt-line-editor-modal");
+  const lineEditorForm = document.getElementById("receipt-line-editor-form");
+  const lineDeleteForm = document.getElementById("receipt-line-delete-form");
+
+  function closeSuggestions() {
+    const list = document.getElementById("sku_suggestions");
+    if (!list) return;
+    list.innerHTML = "";
+    list.classList.add("hidden");
+  }
+
+  if (skuInput && suggestions && !skuInput.disabled) {
+    skuInput.addEventListener("keydown", function(event) {
+      if (event.key === "Escape") {
+        closeSuggestions();
+      }
+    });
+
+    document.addEventListener("click", function(event) {
+      if (event.target === skuInput) return;
+      const list = document.getElementById("sku_suggestions");
+      if (list && list.contains(event.target)) return;
+      closeSuggestions();
+    });
+  }
+
+  function wireEnterFocus(from, to) {
+    if (!from || !to) return;
+    from.addEventListener("keydown", function(event) {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      if (to.disabled) return;
+      to.focus();
+      if (typeof to.select === "function" && to.type !== "date") {
+        to.select();
+      }
+    });
+  }
+
+  wireEnterFocus(qtyInput, caseSizeInput);
+  wireEnterFocus(caseSizeInput, batchInput);
+  wireEnterFocus(batchInput, expiryInput);
+
+  function applyLineEditorData(trigger) {
+    if (!trigger || !lineEditorForm || !lineDeleteForm || !lineEditorModal) return;
+    const palletID = String(trigger.getAttribute("data-pallet-id") || "").trim();
+    const receiptID = String(trigger.getAttribute("data-receipt-id") || "").trim();
+    if (!palletID || !receiptID) return;
+
+    lineEditorForm.action = "/tasker/api/pallets/" + encodeURIComponent(palletID) + "/receipts/" + encodeURIComponent(receiptID) + "/update";
+    lineDeleteForm.action = "/tasker/api/pallets/" + encodeURIComponent(palletID) + "/receipts/" + encodeURIComponent(receiptID) + "/delete";
+
+    const sku = document.getElementById("line_edit_sku");
+    const description = document.getElementById("line_edit_description");
+    const qty = document.getElementById("line_edit_qty");
+    const caseSize = document.getElementById("line_edit_case_size");
+    const batch = document.getElementById("line_edit_batch");
+    const expiry = document.getElementById("line_edit_expiry");
+    const damaged = document.getElementById("line_edit_damaged");
+
+    if (sku) sku.value = String(trigger.getAttribute("data-sku") || "");
+    if (description) description.value = String(trigger.getAttribute("data-description") || "");
+    if (qty) qty.value = String(trigger.getAttribute("data-qty") || "");
+    if (caseSize) caseSize.value = String(trigger.getAttribute("data-case-size") || "");
+    if (batch) batch.value = String(trigger.getAttribute("data-batch") || "");
+    if (expiry) expiry.value = String(trigger.getAttribute("data-expiry") || "");
+    if (damaged) damaged.checked = String(trigger.getAttribute("data-damaged") || "0") === "1";
+
+    lineEditorModal.showModal();
+  }
+
+  document.querySelectorAll("[data-line-edit-trigger='1']").forEach(function(trigger) {
+    trigger.addEventListener("click", function(event) {
+      if (event.target.closest("a, button, input, select, textarea, form, label")) {
+        return;
+      }
+      applyLineEditorData(trigger);
+    });
+  });
 })();
 </script>
 

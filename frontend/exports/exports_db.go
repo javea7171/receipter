@@ -35,13 +35,12 @@ func writeReceiptCSV(ctx context.Context, db *sqlite.DB, w io.Writer, projectID 
 	rows := make([]row, 0)
 	err := db.WithReadTx(ctx, func(ctx context.Context, tx bun.Tx) error {
 		q := `
-	SELECT pr.pallet_id, si.sku, si.description, pr.qty, pr.case_size,
+	SELECT pr.pallet_id, pr.sku, pr.description, pr.qty, pr.case_size,
 	       COALESCE(pr.item_barcode, '') AS item_barcode,
 	       COALESCE(pr.carton_barcode, '') AS carton_barcode,
-       strftime('%d/%m/%Y', pr.expiry_date) AS expiry,
-       COALESCE(pr.batch_number, '') AS batch_number
-FROM pallet_receipts pr
-JOIN stock_items si ON si.id = pr.stock_item_id`
+	       COALESCE(strftime('%d/%m/%Y', pr.expiry_date), '') AS expiry,
+	       COALESCE(pr.batch_number, '') AS batch_number
+FROM pallet_receipts pr`
 		args := make([]any, 0)
 		q += " WHERE pr.project_id = ?"
 		args = append(args, projectID)
@@ -49,7 +48,7 @@ JOIN stock_items si ON si.id = pr.stock_item_id`
 			q += " AND pr.pallet_id = ?"
 			args = append(args, *palletID)
 		}
-		q += " ORDER BY pr.pallet_id ASC, si.sku ASC"
+		q += " ORDER BY pr.pallet_id ASC, pr.sku ASC"
 		return tx.NewRaw(q, args...).Scan(ctx, &rows)
 	})
 	if err != nil {

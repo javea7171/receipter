@@ -17,7 +17,7 @@ type ReceiptInput struct {
 	Damaged        bool
 	DamagedQty     int64
 	BatchNumber    string
-	ExpiryDate     time.Time
+	ExpiryDate     *time.Time
 	CartonBarcode  string
 	ItemBarcode    string
 	StockPhotoBlob []byte
@@ -38,6 +38,7 @@ type ReceiptLineView struct {
 	DamagedQty      int64
 	BatchNumber     string
 	ExpiryDateUK    string
+	ExpiryDateISO   string
 	CartonBarcode   string
 	ItemBarcode     string
 	HasPhoto        bool
@@ -49,14 +50,15 @@ type ReceiptLineView struct {
 }
 
 type PageData struct {
-	PalletID      int64
-	ProjectID     int64
-	ProjectName   string
-	ClientName    string
-	ProjectStatus string
-	PalletStatus  string
-	IsAdmin       bool
-	CanEdit       bool
-	Message       string
-	Lines         []ReceiptLineView
+	PalletID       int64
+	ProjectID      int64
+	ProjectName    string
+	ClientName     string
+	ProjectStatus  string
+	PalletStatus   string
+	IsAdmin        bool
+	CanEdit        bool
+	CanManageLines bool
+	Message        string
+	Lines          []ReceiptLineView
 }

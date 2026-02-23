@@ -55,14 +55,15 @@ CREATE TABLE IF NOT EXISTS pallet_receipts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     project_id INTEGER NOT NULL,
     pallet_id INTEGER NOT NULL,
-    stock_item_id INTEGER NOT NULL,
+    sku TEXT NOT NULL,
+    description TEXT NOT NULL,
     scanned_by_user_id INTEGER NOT NULL,
     qty INTEGER NOT NULL CHECK (qty > 0),
     case_size INTEGER NOT NULL DEFAULT 1 CHECK (case_size > 0),
     damaged BOOLEAN NOT NULL DEFAULT 0,
     damaged_qty INTEGER NOT NULL DEFAULT 0 CHECK (damaged_qty >= 0 AND damaged_qty <= qty),
     batch_number TEXT,
-    expiry_date DATETIME NOT NULL,
+    expiry_date DATETIME,
     carton_barcode TEXT,
     item_barcode TEXT,
     stock_photo_blob BLOB,
@@ -74,7 +75,6 @@ CREATE TABLE IF NOT EXISTS pallet_receipts (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (project_id) REFERENCES projects(id),
     FOREIGN KEY (pallet_id) REFERENCES pallets(id),
-    FOREIGN KEY (stock_item_id) REFERENCES stock_items(id),
     FOREIGN KEY (scanned_by_user_id) REFERENCES users(id)
 );
 
@@ -125,7 +125,12 @@ CREATE INDEX IF NOT EXISTS idx_stock_items_description ON stock_items(descriptio
 CREATE INDEX IF NOT EXISTS idx_pallets_project_id ON pallets(project_id);
 CREATE INDEX IF NOT EXISTS idx_pallet_receipts_pallet_id ON pallet_receipts(pallet_id);
 CREATE INDEX IF NOT EXISTS idx_pallet_receipts_project_id ON pallet_receipts(project_id);
+CREATE INDEX IF NOT EXISTS idx_pallet_receipts_project_sku ON pallet_receipts(project_id, sku);
 CREATE INDEX IF NOT EXISTS idx_stock_import_runs_project_id ON stock_import_runs(project_id);
 CREATE INDEX IF NOT EXISTS idx_export_runs_project_id ON export_runs(project_id);
 CREATE INDEX IF NOT EXISTS idx_pallets_status ON pallets(status);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_entity ON audit_logs(entity_type, entity_id);
+
+-- Context switching is operational state, not business audit signal.
+-- Remove legacy entries so project logs only show meaningful events.
+DELETE FROM audit_logs WHERE action = 'project.activate';

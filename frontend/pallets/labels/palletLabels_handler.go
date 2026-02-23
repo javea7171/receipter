@@ -149,17 +149,26 @@ func PalletContentLabelPageQueryHandler(db *sqlite.DB) http.HandlerFunc {
 			http.Error(w, "failed to load pallet content label", http.StatusInternalServerError)
 			return
 		}
+		events, err := LoadPalletEventLog(r.Context(), db, id)
+		if err != nil {
+			http.Error(w, "failed to load pallet event history", http.StatusInternalServerError)
+			return
+		}
+		canExport := false
+		if session, ok := sessioncontext.GetSessionFromContext(r.Context()); ok {
+			canExport = hasRole(session.UserRoles, rbac.RoleAdmin)
+		}
 
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		if r.URL.Query().Get("fragment") == "1" {
-			if err := PalletContentLabelFragment(pallet.ID, pallet.Status, lines).Render(r.Context(), w); err != nil {
+			if err := PalletContentLabelFragment(pallet.ID, pallet.ProjectID, pallet.Status, canExport, lines, events).Render(r.Context(), w); err != nil {
 				http.Error(w, "failed to render pallet content label fragment", http.StatusInternalServerError)
 				return
 			}
 			return
 		}
 
-		if err := PalletContentLabelPage(pallet.ID, pallet.Status, lines).Render(r.Context(), w); err != nil {
+		if err := PalletContentLabelPage(pallet.ID, pallet.ProjectID, pallet.Status, canExport, lines, events).Render(r.Context(), w); err != nil {
 			http.Error(w, "failed to render pallet content label", http.StatusInternalServerError)
 			return
 		}

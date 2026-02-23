@@ -207,6 +207,37 @@ func countReceiptRowsQty(t *testing.T, db *sqlite.DB, palletID int64) (rows int6
 	return rows, qty
 }
 
+func receiptLineIDBySKU(t *testing.T, db *sqlite.DB, palletID int64, sku string) int64 {
+	t.Helper()
+	var id int64
+	err := db.WithReadTx(context.Background(), func(ctx context.Context, tx bun.Tx) error {
+		return tx.NewRaw(`
+SELECT pr.id
+FROM pallet_receipts pr
+WHERE pr.pallet_id = ? AND pr.sku = ?
+ORDER BY pr.id DESC
+LIMIT 1`, palletID, sku).Scan(ctx, &id)
+	})
+	if err != nil {
+		t.Fatalf("load receipt line id for pallet %d sku %s: %v", palletID, sku, err)
+	}
+	return id
+}
+
+func receiptLineSnapshot(t *testing.T, db *sqlite.DB, receiptID int64) (sku string, qty, caseSize, damagedQty int64, batch, expiryISO string) {
+	t.Helper()
+	err := db.WithReadTx(context.Background(), func(ctx context.Context, tx bun.Tx) error {
+		return tx.NewRaw(`
+SELECT pr.sku, pr.qty, pr.case_size, pr.damaged_qty, COALESCE(pr.batch_number, ''), COALESCE(date(pr.expiry_date), '')
+FROM pallet_receipts pr
+WHERE pr.id = ?`, receiptID).Scan(ctx, &sku, &qty, &caseSize, &damagedQty, &batch, &expiryISO)
+	})
+	if err != nil {
+		t.Fatalf("load receipt snapshot %d: %v", receiptID, err)
+	}
+	return sku, qty, caseSize, damagedQty, batch, expiryISO
+}
+
 func countExportRunsForUserType(t *testing.T, db *sqlite.DB, username, exportType string) int64 {
 	t.Helper()
 	var count int64
@@ -219,6 +250,22 @@ WHERE u.username = ? AND er.export_type = ?`, username, exportType).Scan(ctx, &c
 	})
 	if err != nil {
 		t.Fatalf("count export runs: %v", err)
+	}
+	return count
+}
+
+func countProjectActionLogs(t *testing.T, db *sqlite.DB, action string, projectID int64) int64 {
+	t.Helper()
+	var count int64
+	entityID := strconv.FormatInt(projectID, 10)
+	err := db.WithReadTx(context.Background(), func(ctx context.Context, tx bun.Tx) error {
+		return tx.NewRaw(`
+SELECT COUNT(*)
+FROM audit_logs
+WHERE entity_type = 'projects' AND action = ? AND entity_id = ?`, action, entityID).Scan(ctx, &count)
+	})
+	if err != nil {
+		t.Fatalf("count project action logs: %v", err)
 	}
 	return count
 }
@@ -382,6 +429,373 @@ func TestScanPalletPageIncludesScannerModalHook(t *testing.T) {
 	}
 }
 
+func TestReceiptPageIncludesSkuAutocompleteHook(t *testing.T) {
+	env, client := setupIntegrationServer(t)
+	loginAs(t, client, env.server.URL, "admin", "Admin123!Receipter")
+
+	resp := postForm(t, client, env.server.URL, "/tasker/pallets/new", nil)
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected create pallet 303, got %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+
+	resp = get(t, client, env.server.URL, "/tasker/pallets/1/receipt")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected receipt page 200, got %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read receipt page body: %v", err)
+	}
+	_ = resp.Body.Close()
+	text := string(body)
+	if !strings.Contains(text, `id="sku_input"`) {
+		t.Fatalf("expected sku input id hook on receipt page")
+	}
+	if !strings.Contains(text, `id="sku_suggestions"`) {
+		t.Fatalf("expected sku suggestions container on receipt page")
+	}
+	if !strings.Contains(text, "data-on:input__debounce.180ms") {
+		t.Fatalf("expected datastar sku input debounce hook on receipt page")
+	}
+	if !strings.Contains(text, "/tasker/api/stock/search/options?q=") {
+		t.Fatalf("expected datastar stock options request hook on receipt page")
+	}
+	if !strings.Contains(text, "datastar@1.0.0-RC.7/bundles/datastar.js") {
+		t.Fatalf("expected datastar bundle on receipt page")
+	}
+}
+
+func TestReceiptLineEditAndDeleteWhenProjectActiveAndPalletOpen(t *testing.T) {
+	env, _ := setupIntegrationServer(t)
+	adminClient := newHTTPClient(t)
+	scannerClient := newHTTPClient(t)
+
+	loginAs(t, adminClient, env.server.URL, "admin", "Admin123!Receipter")
+	resp := postForm(t, adminClient, env.server.URL, "/tasker/pallets/new", nil)
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected create pallet 303, got %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+
+	loginAs(t, scannerClient, env.server.URL, "scanner1", "Scanner123!Receipter")
+	resp = postForm(t, scannerClient, env.server.URL, "/tasker/api/pallets/1/receipts", url.Values{
+		"sku":          {"SKU-EDIT"},
+		"description":  {"Editable Line"},
+		"qty":          {"3"},
+		"case_size":    {"2"},
+		"damaged_qty":  {"0"},
+		"batch_number": {"E1"},
+		"expiry_date":  {"2028-03-01"},
+	})
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected scanner receipt create 303, got %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+
+	lineID := receiptLineIDBySKU(t, env.db, 1, "SKU-EDIT")
+
+	resp = get(t, scannerClient, env.server.URL, "/tasker/pallets/1/receipt")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected receipt page 200, got %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read receipt page body: %v", err)
+	}
+	_ = resp.Body.Close()
+	page := string(body)
+	if !strings.Contains(page, "Click a line to edit or delete it.") {
+		t.Fatalf("expected line edit helper text when pallet open and project active")
+	}
+	if !strings.Contains(page, `id="receipt-line-editor-modal"`) {
+		t.Fatalf("expected receipt line editor modal to be present")
+	}
+	if !strings.Contains(page, `data-line-edit-trigger="1"`) {
+		t.Fatalf("expected editable line trigger marker on receipt rows")
+	}
+
+	resp = postForm(t, scannerClient, env.server.URL, "/tasker/api/pallets/1/receipts/"+strconv.FormatInt(lineID, 10)+"/update", url.Values{
+		"sku":          {"SKU-EDIT-NEW"},
+		"description":  {"Editable Line Updated"},
+		"qty":          {"5"},
+		"case_size":    {"4"},
+		"damaged":      {"1"},
+		"damaged_qty":  {"1"},
+		"batch_number": {"E2"},
+		"expiry_date":  {"2029-04-02"},
+	})
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected receipt line update 303, got %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+
+	sku, qty, caseSize, damagedQty, batch, expiryISO := receiptLineSnapshot(t, env.db, lineID)
+	if sku != "SKU-EDIT-NEW" || qty != 5 || caseSize != 4 || damagedQty != 5 || batch != "E2" || expiryISO != "2029-04-02" {
+		t.Fatalf("unexpected updated line values: sku=%s qty=%d case_size=%d damaged_qty=%d batch=%s expiry=%s", sku, qty, caseSize, damagedQty, batch, expiryISO)
+	}
+
+	resp = postForm(t, scannerClient, env.server.URL, "/tasker/api/pallets/1/receipts/"+strconv.FormatInt(lineID, 10)+"/delete", nil)
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected receipt line delete 303, got %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+
+	rows, qtyTotal := countReceiptRowsQty(t, env.db, 1)
+	if rows != 0 || qtyTotal != 0 {
+		t.Fatalf("expected no receipt lines after delete, rows=%d qty=%d", rows, qtyTotal)
+	}
+}
+
+func TestReceiptCreateSplitsDamagedIntoSeparateLines(t *testing.T) {
+	env, _ := setupIntegrationServer(t)
+	adminClient := newHTTPClient(t)
+	scannerClient := newHTTPClient(t)
+
+	loginAs(t, adminClient, env.server.URL, "admin", "Admin123!Receipter")
+	resp := postForm(t, adminClient, env.server.URL, "/tasker/pallets/new", nil)
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected create pallet 303, got %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+
+	loginAs(t, scannerClient, env.server.URL, "scanner1", "Scanner123!Receipter")
+	resp = postForm(t, scannerClient, env.server.URL, "/tasker/api/pallets/1/receipts", url.Values{
+		"sku":          {"SKU-SPLIT"},
+		"description":  {"Split damaged"},
+		"qty":          {"3"},
+		"case_size":    {"1"},
+		"damaged":      {"1"},
+		"damaged_qty":  {"2"},
+		"batch_number": {"S1"},
+		"expiry_date":  {"2029-01-15"},
+	})
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected receipt create 303, got %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+
+	var rows, damagedQty, nonDamagedQty int64
+	err := env.db.WithReadTx(context.Background(), func(ctx context.Context, tx bun.Tx) error {
+		if err := tx.NewRaw(`
+SELECT COUNT(*)
+FROM pallet_receipts pr
+WHERE pr.pallet_id = ? AND pr.sku = ?`, 1, "SKU-SPLIT").Scan(ctx, &rows); err != nil {
+			return err
+		}
+		if err := tx.NewRaw(`
+SELECT COALESCE(SUM(pr.qty), 0)
+FROM pallet_receipts pr
+WHERE pr.pallet_id = ? AND pr.sku = ? AND pr.damaged = 1`, 1, "SKU-SPLIT").Scan(ctx, &damagedQty); err != nil {
+			return err
+		}
+		return tx.NewRaw(`
+SELECT COALESCE(SUM(pr.qty), 0)
+FROM pallet_receipts pr
+WHERE pr.pallet_id = ? AND pr.sku = ? AND pr.damaged = 0`, 1, "SKU-SPLIT").Scan(ctx, &nonDamagedQty)
+	})
+	if err != nil {
+		t.Fatalf("query split rows: %v", err)
+	}
+	if rows != 2 {
+		t.Fatalf("expected 2 split rows, got %d", rows)
+	}
+	if damagedQty != 2 || nonDamagedQty != 1 {
+		t.Fatalf("expected split quantities damaged=2 non-damaged=1, got damaged=%d non-damaged=%d", damagedQty, nonDamagedQty)
+	}
+
+	resp = get(t, scannerClient, env.server.URL, "/tasker/pallets/1/receipt")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected receipt page 200, got %d", resp.StatusCode)
+	}
+	body, readErr := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if readErr != nil {
+		t.Fatalf("read receipt page body: %v", readErr)
+	}
+	page := string(body)
+	if strings.Contains(page, "Yes (") {
+		t.Fatalf("damaged column should display yes/no only, not quantities")
+	}
+}
+
+func TestReceiptLineEditAndDeleteBlockedWhenPalletClosed(t *testing.T) {
+	env, _ := setupIntegrationServer(t)
+	adminClient := newHTTPClient(t)
+	scannerClient := newHTTPClient(t)
+
+	loginAs(t, adminClient, env.server.URL, "admin", "Admin123!Receipter")
+	resp := postForm(t, adminClient, env.server.URL, "/tasker/pallets/new", nil)
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected create pallet 303, got %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+
+	loginAs(t, scannerClient, env.server.URL, "scanner1", "Scanner123!Receipter")
+	resp = postForm(t, scannerClient, env.server.URL, "/tasker/api/pallets/1/receipts", url.Values{
+		"sku":          {"SKU-CLOSED-LINE"},
+		"description":  {"Closed"},
+		"qty":          {"2"},
+		"case_size":    {"1"},
+		"batch_number": {"CL1"},
+		"expiry_date":  {"2028-05-01"},
+	})
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected create receipt line 303, got %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+	lineID := receiptLineIDBySKU(t, env.db, 1, "SKU-CLOSED-LINE")
+
+	resp = postForm(t, adminClient, env.server.URL, "/tasker/api/pallets/1/close", nil)
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected close pallet 303, got %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+
+	skuBefore, qtyBefore, caseSizeBefore, damagedQtyBefore, batchBefore, expiryBefore := receiptLineSnapshot(t, env.db, lineID)
+
+	resp = postForm(t, adminClient, env.server.URL, "/tasker/api/pallets/1/receipts/"+strconv.FormatInt(lineID, 10)+"/update", url.Values{
+		"sku":          {"SKU-CLOSED-LINE-NEW"},
+		"description":  {"Should not update"},
+		"qty":          {"7"},
+		"case_size":    {"3"},
+		"damaged_qty":  {"0"},
+		"batch_number": {"CL2"},
+		"expiry_date":  {"2029-06-01"},
+	})
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected closed line update redirect 303, got %d", resp.StatusCode)
+	}
+	if !strings.Contains(resp.Header.Get("Location"), "receipt+lines+are+read-only+unless+project+is+active+and+pallet+is+open") {
+		t.Fatalf("expected read-only error redirect for closed pallet update, got %s", resp.Header.Get("Location"))
+	}
+	_ = resp.Body.Close()
+
+	resp = postForm(t, scannerClient, env.server.URL, "/tasker/api/pallets/1/receipts/"+strconv.FormatInt(lineID, 10)+"/delete", nil)
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected closed line delete redirect 303, got %d", resp.StatusCode)
+	}
+	if !strings.Contains(resp.Header.Get("Location"), "receipt+lines+are+read-only+unless+project+is+active+and+pallet+is+open") {
+		t.Fatalf("expected read-only error redirect for closed pallet delete, got %s", resp.Header.Get("Location"))
+	}
+	_ = resp.Body.Close()
+
+	skuAfter, qtyAfter, caseSizeAfter, damagedQtyAfter, batchAfter, expiryAfter := receiptLineSnapshot(t, env.db, lineID)
+	if skuAfter != skuBefore || qtyAfter != qtyBefore || caseSizeAfter != caseSizeBefore || damagedQtyAfter != damagedQtyBefore || batchAfter != batchBefore || expiryAfter != expiryBefore {
+		t.Fatalf("expected line to remain unchanged on closed pallet; before=%s/%d/%d/%d/%s/%s after=%s/%d/%d/%d/%s/%s",
+			skuBefore, qtyBefore, caseSizeBefore, damagedQtyBefore, batchBefore, expiryBefore,
+			skuAfter, qtyAfter, caseSizeAfter, damagedQtyAfter, batchAfter, expiryAfter)
+	}
+
+	resp = get(t, adminClient, env.server.URL, "/tasker/pallets/1/receipt")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected receipt page 200, got %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read closed receipt page body: %v", err)
+	}
+	_ = resp.Body.Close()
+	if strings.Contains(string(body), "Click a line to edit or delete it.") {
+		t.Fatalf("closed pallet receipt page should not show line edit helper")
+	}
+	if strings.Contains(string(body), `id="receipt-line-editor-modal"`) {
+		t.Fatalf("closed pallet receipt page should not include line editor modal")
+	}
+}
+
+func TestReceiptLineEditAndDeleteBlockedWhenProjectInactive(t *testing.T) {
+	env, _ := setupIntegrationServer(t)
+	adminClient := newHTTPClient(t)
+	scannerClient := newHTTPClient(t)
+
+	loginAs(t, adminClient, env.server.URL, "admin", "Admin123!Receipter")
+
+	resp := postForm(t, adminClient, env.server.URL, "/tasker/projects", url.Values{
+		"name":         {"Line Edit Inactive"},
+		"description":  {"Inactive line edit guard"},
+		"project_date": {"2026-02-23"},
+		"client_name":  {"Boba Formosa"},
+		"code":         {"line-edit-inactive"},
+		"status":       {"active"},
+	})
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected create project 303, got %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+
+	projectID := projectIDByCode(t, env.db, "line-edit-inactive")
+
+	resp = postForm(t, adminClient, env.server.URL, "/tasker/projects/"+strconv.FormatInt(projectID, 10)+"/activate", nil)
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected activate project 303, got %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+
+	resp = postForm(t, adminClient, env.server.URL, "/tasker/pallets/new", nil)
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected create pallet 303, got %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+
+	loginAs(t, scannerClient, env.server.URL, "scanner1", "Scanner123!Receipter")
+	resp = postForm(t, scannerClient, env.server.URL, "/tasker/api/pallets/1/receipts", url.Values{
+		"sku":          {"SKU-INACTIVE-LINE"},
+		"description":  {"Inactive"},
+		"qty":          {"2"},
+		"batch_number": {"IL1"},
+		"expiry_date":  {"2028-07-01"},
+	})
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected create receipt line 303, got %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+	lineID := receiptLineIDBySKU(t, env.db, 1, "SKU-INACTIVE-LINE")
+
+	resp = postForm(t, adminClient, env.server.URL, "/tasker/projects/"+strconv.FormatInt(projectID, 10)+"/status", url.Values{
+		"status": {"inactive"},
+		"filter": {"active"},
+	})
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected deactivate project 303, got %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+
+	skuBefore, qtyBefore, caseSizeBefore, damagedQtyBefore, batchBefore, expiryBefore := receiptLineSnapshot(t, env.db, lineID)
+
+	resp = postForm(t, adminClient, env.server.URL, "/tasker/api/pallets/1/receipts/"+strconv.FormatInt(lineID, 10)+"/delete", nil)
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected inactive line delete redirect 303, got %d", resp.StatusCode)
+	}
+	if !strings.Contains(resp.Header.Get("Location"), "receipt+lines+are+read-only+unless+project+is+active+and+pallet+is+open") {
+		t.Fatalf("expected read-only error redirect for inactive project delete, got %s", resp.Header.Get("Location"))
+	}
+	_ = resp.Body.Close()
+
+	skuAfter, qtyAfter, caseSizeAfter, damagedQtyAfter, batchAfter, expiryAfter := receiptLineSnapshot(t, env.db, lineID)
+	if skuAfter != skuBefore || qtyAfter != qtyBefore || caseSizeAfter != caseSizeBefore || damagedQtyAfter != damagedQtyBefore || batchAfter != batchBefore || expiryAfter != expiryBefore {
+		t.Fatalf("expected line to remain unchanged on inactive project; before=%s/%d/%d/%d/%s/%s after=%s/%d/%d/%d/%s/%s",
+			skuBefore, qtyBefore, caseSizeBefore, damagedQtyBefore, batchBefore, expiryBefore,
+			skuAfter, qtyAfter, caseSizeAfter, damagedQtyAfter, batchAfter, expiryAfter)
+	}
+
+	resp = get(t, adminClient, env.server.URL, "/tasker/pallets/1/receipt")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected receipt page 200, got %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read inactive receipt page body: %v", err)
+	}
+	_ = resp.Body.Close()
+	if strings.Contains(string(body), "Click a line to edit or delete it.") {
+		t.Fatalf("inactive project receipt page should not show line edit helper")
+	}
+	if strings.Contains(string(body), `id="receipt-line-editor-modal"`) {
+		t.Fatalf("inactive project receipt page should not include line editor modal")
+	}
+}
+
 func TestPalletProgressFragmentRendersMorphTarget(t *testing.T) {
 	env, client := setupIntegrationServer(t)
 	loginAs(t, client, env.server.URL, "admin", "Admin123!Receipter")
@@ -429,6 +843,9 @@ func TestPalletProgressAdminAndScannerShowViewButton(t *testing.T) {
 	if !strings.Contains(string(adminBody), `/tasker/pallets/1/content-label`) {
 		t.Fatalf("expected admin progress to include content view link")
 	}
+	if !strings.Contains(string(adminBody), `/tasker/projects/1/logs`) {
+		t.Fatalf("expected admin progress to include view logs link")
+	}
 	if !strings.Contains(string(adminBody), `/tasker/stock/import`) {
 		t.Fatalf("expected admin navigation to include imports link")
 	}
@@ -446,10 +863,47 @@ func TestPalletProgressAdminAndScannerShowViewButton(t *testing.T) {
 	if !strings.Contains(string(scannerBody), `/tasker/pallets/1/content-label`) {
 		t.Fatalf("expected scanner progress to include content view link")
 	}
+	if strings.Contains(string(scannerBody), `/tasker/projects/1/logs`) {
+		t.Fatalf("scanner progress should not include admin project logs link")
+	}
 
 	resp = get(t, scannerClient, env.server.URL, "/tasker/pallets/1/content-label")
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected scanner content view 200, got %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+}
+
+func TestProjectLogsPage_AdminAllowedScannerDenied(t *testing.T) {
+	env, _ := setupIntegrationServer(t)
+	adminClient := newHTTPClient(t)
+	scannerClient := newHTTPClient(t)
+
+	loginAs(t, adminClient, env.server.URL, "admin", "Admin123!Receipter")
+	resp := get(t, adminClient, env.server.URL, "/tasker/projects/1/logs")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected admin project logs 200, got %d", resp.StatusCode)
+	}
+	adminBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read admin logs body: %v", err)
+	}
+	_ = resp.Body.Close()
+	adminText := string(adminBody)
+	if !strings.Contains(adminText, "Project Logs") {
+		t.Fatalf("expected project logs heading")
+	}
+	if !strings.Contains(adminText, "Full Event History") {
+		t.Fatalf("expected project logs event history section")
+	}
+
+	loginAs(t, scannerClient, env.server.URL, "scanner1", "Scanner123!Receipter")
+	resp = get(t, scannerClient, env.server.URL, "/tasker/projects/1/logs")
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected scanner project logs denied with 303, got %d", resp.StatusCode)
+	}
+	if !strings.Contains(resp.Header.Get("Location"), "/login") {
+		t.Fatalf("expected scanner project logs redirect to login, got %s", resp.Header.Get("Location"))
 	}
 	_ = resp.Body.Close()
 }
@@ -559,6 +1013,12 @@ func TestScannerRestrictedScreensAndProgressUsesScanView(t *testing.T) {
 	viewText := string(viewBody)
 	if !strings.Contains(viewText, "Pallet 1 Contents") {
 		t.Fatalf("expected content label heading in scanner view page")
+	}
+	if !strings.Contains(viewText, "Event History") {
+		t.Fatalf("expected event history section in scanner content view page")
+	}
+	if strings.Contains(viewText, "/tasker/exports/pallet/1.csv?project_id=1") {
+		t.Fatalf("scanner content view should not show admin export link")
 	}
 
 	resp = get(t, scannerClient, env.server.URL, "/tasker/scan/pallet")
@@ -697,6 +1157,21 @@ func TestPalletContentLabelFragmentIncludesScannerAndMorphTarget(t *testing.T) {
 	}
 	if !strings.Contains(text, "scanner1") {
 		t.Fatalf("expected scanner username in content fragment")
+	}
+	if !strings.Contains(text, ">Case Size<") {
+		t.Fatalf("expected case size column in content fragment")
+	}
+	if !strings.Contains(text, ">Damaged<") {
+		t.Fatalf("expected damaged column in content fragment")
+	}
+	if !strings.Contains(text, "/tasker/exports/pallet/1.csv?project_id=1") {
+		t.Fatalf("expected admin content fragment to include pallet export link")
+	}
+	if !strings.Contains(text, "Event History") {
+		t.Fatalf("expected event history section in content fragment")
+	}
+	if !strings.Contains(text, "receipt.create") {
+		t.Fatalf("expected receipt.create audit action in content fragment event history")
 	}
 	if !strings.Contains(text, "data-on-interval__duration.3s") {
 		t.Fatalf("expected auto-refresh interval in content fragment")
@@ -940,6 +1415,44 @@ func TestInactiveProjectPalletCannotBeModifiedByScannerOrAdmin(t *testing.T) {
 	}
 }
 
+func TestProjectContextSwitchIsNotLoggedInProjectAudit(t *testing.T) {
+	env, client := setupIntegrationServer(t)
+	loginAs(t, client, env.server.URL, "admin", "Admin123!Receipter")
+
+	resp := postForm(t, client, env.server.URL, "/tasker/projects/1/activate", nil)
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected activate current project 303, got %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+	if count := countProjectActionLogs(t, env.db, "project.activate", 1); count != 0 {
+		t.Fatalf("expected no project.activate logs for context switch, got %d", count)
+	}
+
+	resp = postForm(t, client, env.server.URL, "/tasker/projects", url.Values{
+		"name":         {"Context Switch Target"},
+		"description":  {"Project for context switch audit test"},
+		"project_date": {"2026-02-23"},
+		"client_name":  {"Boba Formosa"},
+		"code":         {"context-switch-target"},
+		"status":       {"active"},
+	})
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected create project 303, got %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+
+	targetProjectID := projectIDByCode(t, env.db, "context-switch-target")
+	resp = postForm(t, client, env.server.URL, "/tasker/projects/"+strconv.FormatInt(targetProjectID, 10)+"/activate", nil)
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected activate target project 303, got %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+
+	if count := countProjectActionLogs(t, env.db, "project.activate", targetProjectID); count != 0 {
+		t.Fatalf("expected no project.activate logs after switching to target project, got %d", count)
+	}
+}
+
 func TestAdminStockImportListAndDelete(t *testing.T) {
 	env, client := setupIntegrationServer(t)
 	loginAs(t, client, env.server.URL, "admin", "Admin123!Receipter")
@@ -1037,6 +1550,109 @@ func TestStockImportInvalidHeaderShowsErrorMessage(t *testing.T) {
 	}
 	if !strings.Contains(text, "Required header row") || !strings.Contains(text, "sku,description") {
 		t.Fatalf("expected required header guidance on import page")
+	}
+}
+
+func TestStockSearchEndpointFuzzyMatchesSkuAndDescription(t *testing.T) {
+	env, client := setupIntegrationServer(t)
+	loginAs(t, client, env.server.URL, "admin", "Admin123!Receipter")
+
+	resp := postMultipartFile(
+		t,
+		client,
+		env.server.URL,
+		"/tasker/stock/import",
+		"file",
+		"stock.csv",
+		[]byte("sku,description\nAA-200,Apple Juice\nZZ-100,Blue Berry\n"),
+	)
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected stock import 303, got %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+
+	resp = get(t, client, env.server.URL, "/tasker/api/stock/search?q=berry")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected stock search 200 for description fuzzy, got %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read stock search body: %v", err)
+	}
+	_ = resp.Body.Close()
+	text := string(body)
+	if !strings.Contains(text, "ZZ-100") {
+		t.Fatalf("expected description fuzzy search to return ZZ-100, got %s", text)
+	}
+
+	resp = get(t, client, env.server.URL, "/tasker/api/stock/search?q=AA-2")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected stock search 200 for sku fuzzy, got %d", resp.StatusCode)
+	}
+	body, err = io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read stock search body: %v", err)
+	}
+	_ = resp.Body.Close()
+	text = string(body)
+	if !strings.Contains(text, "AA-200") {
+		t.Fatalf("expected sku fuzzy search to return AA-200, got %s", text)
+	}
+}
+
+func TestStockSearchOptionsEndpointRendersSuggestionMarkup(t *testing.T) {
+	env, client := setupIntegrationServer(t)
+	loginAs(t, client, env.server.URL, "admin", "Admin123!Receipter")
+
+	resp := postMultipartFile(
+		t,
+		client,
+		env.server.URL,
+		"/tasker/stock/import",
+		"file",
+		"stock.csv",
+		[]byte("sku,description\nAA-200,Apple Juice\nZZ-100,Blue Berry\n"),
+	)
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected stock import 303, got %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+
+	resp = get(t, client, env.server.URL, "/tasker/api/stock/search/options?q=berry")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected stock options search 200, got %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read stock options search body: %v", err)
+	}
+	_ = resp.Body.Close()
+
+	text := string(body)
+	if !strings.Contains(text, `id="sku_suggestions"`) {
+		t.Fatalf("expected suggestions morph target id in options response")
+	}
+	if !strings.Contains(text, `data-sku-suggestion="1"`) {
+		t.Fatalf("expected clickable suggestion markers in options response")
+	}
+	if !strings.Contains(text, `data-sku="ZZ-100"`) {
+		t.Fatalf("expected matching sku in options response, got %s", text)
+	}
+	if !strings.Contains(text, "ZZ-100 - Blue Berry") {
+		t.Fatalf("expected sku label text in options response, got %s", text)
+	}
+
+	resp = get(t, client, env.server.URL, "/tasker/api/stock/search/options?q=")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected empty stock options search 200, got %d", resp.StatusCode)
+	}
+	body, err = io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read empty stock options body: %v", err)
+	}
+	_ = resp.Body.Close()
+	if !strings.Contains(string(body), `id="sku_suggestions"`) || !strings.Contains(string(body), " hidden") {
+		t.Fatalf("expected hidden suggestions container for empty query, got %s", string(body))
 	}
 }
 

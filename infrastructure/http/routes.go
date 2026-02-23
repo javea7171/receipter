@@ -36,6 +36,8 @@ func (s *Server) RegisterAdminRoutes(r chi.Router) chi.Router {
 	r.Post("/projects/{id}/activate", projectspage.ActivateProjectCommandHandler(s.DB, s.SessionCache, s.Audit))
 	s.Rbac.Add(rbac.RoleAdmin, "PROJECTS_STATUS_EDIT", http.MethodPost, "/tasker/projects/*/status")
 	r.Post("/projects/{id}/status", projectspage.UpdateProjectStatusCommandHandler(s.DB, s.SessionCache, s.Audit))
+	s.Rbac.Add(rbac.RoleAdmin, "PROJECTS_LOGS_VIEW", http.MethodGet, "/tasker/projects/*/logs")
+	r.Get("/projects/{id}/logs", projectspage.ProjectLogsPageQueryHandler(s.DB))
 
 	s.Rbac.Add(rbac.RoleAdmin, "ADMIN_USERS_LIST_VIEW", http.MethodGet, "/tasker/admin/users")
 	r.Get("/admin/users", adminusers.UsersPageQueryHandler(s.DB, s.UserCache))
@@ -82,6 +84,10 @@ func (s *Server) RegisterPalletRoutes(r chi.Router) {
 
 	s.Rbac.Add(rbac.RoleScanner, "PALLET_RECEIPT_CREATE", http.MethodPost, "/tasker/api/pallets/*/receipts")
 	r.Post("/api/pallets/{id}/receipts", palletreceipt.CreateReceiptCommandHandler(s.DB, s.Audit))
+	s.Rbac.Add(rbac.RoleScanner, "PALLET_RECEIPT_UPDATE", http.MethodPost, "/tasker/api/pallets/*/receipts/*/update")
+	r.Post("/api/pallets/{id}/receipts/{receiptID}/update", palletreceipt.UpdateReceiptLineCommandHandler(s.DB, s.Audit))
+	s.Rbac.Add(rbac.RoleScanner, "PALLET_RECEIPT_DELETE", http.MethodPost, "/tasker/api/pallets/*/receipts/*/delete")
+	r.Post("/api/pallets/{id}/receipts/{receiptID}/delete", palletreceipt.DeleteReceiptLineCommandHandler(s.DB, s.Audit))
 
 	s.Rbac.Add(rbac.RoleScanner, "PALLET_RECEIPT_PHOTO_VIEW", http.MethodGet, "/tasker/api/pallets/*/receipts/*/photo")
 	r.Get("/api/pallets/{id}/receipts/{receiptID}/photo", palletreceipt.ReceiptPhotoQueryHandler(s.DB))
@@ -99,6 +105,8 @@ func (s *Server) RegisterPalletRoutes(r chi.Router) {
 
 	s.Rbac.Add(rbac.RoleScanner, "STOCK_SEARCH", http.MethodGet, "/tasker/api/stock/search")
 	r.Get("/api/stock/search", palletreceipt.SearchStockQueryHandler(s.DB))
+	s.Rbac.Add(rbac.RoleScanner, "STOCK_SEARCH_OPTIONS", http.MethodGet, "/tasker/api/stock/search/options")
+	r.Get("/api/stock/search/options", palletreceipt.SearchStockOptionsQueryHandler(s.DB))
 }
 
 func (s *Server) RegisterStockRoutes(r chi.Router) {

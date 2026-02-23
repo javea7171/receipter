@@ -106,9 +106,13 @@ templ ProjectsPage(data PageData) {
 												<td><span class="badge badge-neutral badge-soft">{ row.ClosedPallets }</span></td>
 												<td class="font-mono text-xs">{ row.Code }</td>
 												<td class="text-right">
-													<form method="post" action={ fmt.Sprintf("/tasker/projects/%d/activate", row.ID) }>
-														<button class="btn btn-soft btn-primary btn-sm" type="submit">Open Pallets</button>
-													</form>
+													if row.IsCurrent {
+														<a class="btn btn-soft btn-primary btn-sm" href="/tasker/pallets/progress">Open Pallets</a>
+													} else {
+														<form method="post" action={ fmt.Sprintf("/tasker/projects/%d/activate", row.ID) }>
+															<button class="btn btn-soft btn-primary btn-sm" type="submit">Open Pallets</button>
+														</form>
+													}
 												</td>
 												if data.IsAdmin {
 													<td class="text-right">

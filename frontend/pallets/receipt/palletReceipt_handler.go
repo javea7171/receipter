@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"html"
 	"io"
 	"mime"
 	"net/http"
@@ -20,6 +21,7 @@ import (
 	"receipter/infrastructure/cache"
 	"receipter/infrastructure/rbac"
 	"receipter/infrastructure/sqlite"
+	"receipter/models"
 )
 
 // ReceiptPageQueryHandler renders the receipt screen for a pallet.
@@ -47,6 +49,7 @@ func ReceiptPageQueryHandler(db *sqlite.DB, _ *cache.UserSessionCache) http.Hand
 			}
 		}
 		data.CanEdit = CanUserReceiptPallet(data.ProjectStatus, data.PalletStatus, session.UserRoles)
+		data.CanManageLines = CanManageReceiptLines(data.ProjectStatus, data.PalletStatus)
 		if !data.CanEdit {
 			if data.ProjectStatus != "active" {
 				data.Message = "Project is inactive. This pallet is read-only."
@@ -128,7 +131,7 @@ func CreateReceiptCommandHandler(db *sqlite.DB, auditSvc *audit.Service) http.Ha
 			return
 		}
 
-		expiry, err := parseDate(strings.TrimSpace(r.FormValue("expiry_date")))
+		expiry, err := parseOptionalDate(strings.TrimSpace(r.FormValue("expiry_date")))
 		if err != nil {
 			http.Redirect(w, r, "/tasker/pallets/"+strconv.FormatInt(id, 10)+"/receipt?error="+url.QueryEscape("invalid expiry date"), http.StatusSeeOther)
 			return
@@ -179,6 +182,134 @@ func CreateReceiptCommandHandler(db *sqlite.DB, auditSvc *audit.Service) http.Ha
 	}
 }
 
+// UpdateReceiptLineCommandHandler updates an existing receipt line for a pallet.
+func UpdateReceiptLineCommandHandler(db *sqlite.DB, auditSvc *audit.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		palletID, err := parsePalletID(r)
+		if err != nil {
+			http.Error(w, "invalid pallet id", http.StatusBadRequest)
+			return
+		}
+		receiptID, err := parseReceiptID(r)
+		if err != nil {
+			http.Error(w, "invalid receipt id", http.StatusBadRequest)
+			return
+		}
+
+		if err := r.ParseForm(); err != nil {
+			http.Redirect(w, r, "/tasker/pallets/"+strconv.FormatInt(palletID, 10)+"/receipt?error="+url.QueryEscape("invalid form"), http.StatusSeeOther)
+			return
+		}
+
+		session, _ := context.GetSessionFromContext(r.Context())
+		palletStatus, _, projectStatus, err := LoadPalletContext(r.Context(), db, palletID)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				http.Error(w, "pallet not found", http.StatusNotFound)
+				return
+			}
+			http.Error(w, "failed to load pallet", http.StatusInternalServerError)
+			return
+		}
+		if !CanManageReceiptLines(projectStatus, palletStatus) {
+			http.Redirect(w, r, "/tasker/pallets/"+strconv.FormatInt(palletID, 10)+"/receipt?error="+url.QueryEscape("receipt lines are read-only unless project is active and pallet is open"), http.StatusSeeOther)
+			return
+		}
+
+		qty, err := strconv.ParseInt(strings.TrimSpace(r.FormValue("qty")), 10, 64)
+		if err != nil || qty <= 0 {
+			http.Redirect(w, r, "/tasker/pallets/"+strconv.FormatInt(palletID, 10)+"/receipt?error="+url.QueryEscape("qty must be greater than 0"), http.StatusSeeOther)
+			return
+		}
+		caseSize, err := strconv.ParseInt(strings.TrimSpace(defaultOne(r.FormValue("case_size"))), 10, 64)
+		if err != nil || caseSize <= 0 {
+			http.Redirect(w, r, "/tasker/pallets/"+strconv.FormatInt(palletID, 10)+"/receipt?error="+url.QueryEscape("case size must be greater than 0"), http.StatusSeeOther)
+			return
+		}
+		damaged := r.FormValue("damaged") != ""
+		damagedQty := int64(0)
+		if damaged {
+			damagedQty = qty
+		}
+		expiry, err := parseOptionalDate(strings.TrimSpace(r.FormValue("expiry_date")))
+		if err != nil {
+			http.Redirect(w, r, "/tasker/pallets/"+strconv.FormatInt(palletID, 10)+"/receipt?error="+url.QueryEscape("invalid expiry date"), http.StatusSeeOther)
+			return
+		}
+		sku := strings.TrimSpace(r.FormValue("sku"))
+		if sku == "" {
+			http.Redirect(w, r, "/tasker/pallets/"+strconv.FormatInt(palletID, 10)+"/receipt?error="+url.QueryEscape("sku is required"), http.StatusSeeOther)
+			return
+		}
+
+		input := ReceiptLineUpdateInput{
+			PalletID:    palletID,
+			ReceiptID:   receiptID,
+			SKU:         sku,
+			Description: strings.TrimSpace(r.FormValue("description")),
+			Qty:         qty,
+			CaseSize:    caseSize,
+			Damaged:     damaged,
+			DamagedQty:  damagedQty,
+			BatchNumber: strings.TrimSpace(r.FormValue("batch_number")),
+			ExpiryDate:  expiry,
+		}
+
+		if err := UpdateReceiptLine(r.Context(), db, auditSvc, session.UserID, input); err != nil {
+			if err == sql.ErrNoRows {
+				http.Error(w, "receipt line not found", http.StatusNotFound)
+				return
+			}
+			http.Redirect(w, r, "/tasker/pallets/"+strconv.FormatInt(palletID, 10)+"/receipt?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+			return
+		}
+
+		http.Redirect(w, r, "/tasker/pallets/"+strconv.FormatInt(palletID, 10)+"/receipt", http.StatusSeeOther)
+	}
+}
+
+// DeleteReceiptLineCommandHandler removes an existing receipt line for a pallet.
+func DeleteReceiptLineCommandHandler(db *sqlite.DB, auditSvc *audit.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		palletID, err := parsePalletID(r)
+		if err != nil {
+			http.Error(w, "invalid pallet id", http.StatusBadRequest)
+			return
+		}
+		receiptID, err := parseReceiptID(r)
+		if err != nil {
+			http.Error(w, "invalid receipt id", http.StatusBadRequest)
+			return
+		}
+
+		session, _ := context.GetSessionFromContext(r.Context())
+		palletStatus, _, projectStatus, err := LoadPalletContext(r.Context(), db, palletID)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				http.Error(w, "pallet not found", http.StatusNotFound)
+				return
+			}
+			http.Error(w, "failed to load pallet", http.StatusInternalServerError)
+			return
+		}
+		if !CanManageReceiptLines(projectStatus, palletStatus) {
+			http.Redirect(w, r, "/tasker/pallets/"+strconv.FormatInt(palletID, 10)+"/receipt?error="+url.QueryEscape("receipt lines are read-only unless project is active and pallet is open"), http.StatusSeeOther)
+			return
+		}
+
+		if err := DeleteReceiptLine(r.Context(), db, auditSvc, session.UserID, palletID, receiptID); err != nil {
+			if err == sql.ErrNoRows {
+				http.Error(w, "receipt line not found", http.StatusNotFound)
+				return
+			}
+			http.Redirect(w, r, "/tasker/pallets/"+strconv.FormatInt(palletID, 10)+"/receipt?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+			return
+		}
+
+		http.Redirect(w, r, "/tasker/pallets/"+strconv.FormatInt(palletID, 10)+"/receipt", http.StatusSeeOther)
+	}
+}
+
 func CanUserReceiptPallet(projectStatus, palletStatus string, userRoles []string) bool {
 	if projectStatus != "active" {
 		return false
@@ -198,6 +329,13 @@ func CanUserReceiptPallet(projectStatus, palletStatus string, userRoles []string
 		return false
 	}
 	return false
+}
+
+func CanManageReceiptLines(projectStatus, palletStatus string) bool {
+	if projectStatus != "active" {
+		return false
+	}
+	return palletStatus == "created" || palletStatus == "open"
 }
 
 // SearchStockQueryHandler returns matching stock codes.
@@ -220,8 +358,73 @@ func SearchStockQueryHandler(db *sqlite.DB) http.HandlerFunc {
 	}
 }
 
+// SearchStockOptionsQueryHandler returns Datastar morph target markup for SKU suggestions.
+func SearchStockOptionsQueryHandler(db *sqlite.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		q := strings.TrimSpace(r.URL.Query().Get("q"))
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+
+		session, ok := context.GetSessionFromContext(r.Context())
+		if !ok || session.ActiveProjectID == nil || *session.ActiveProjectID <= 0 {
+			writeStockSuggestionListHTML(w, q, nil)
+			return
+		}
+
+		items, err := SearchStock(r.Context(), db, *session.ActiveProjectID, q)
+		if err != nil {
+			http.Error(w, "failed to search stock", http.StatusInternalServerError)
+			return
+		}
+		writeStockSuggestionListHTML(w, q, items)
+	}
+}
+
+func writeStockSuggestionListHTML(w io.Writer, q string, items []models.StockItem) {
+	q = strings.TrimSpace(q)
+	listClass := "menu menu-sm mt-2 max-h-56 w-full overflow-y-auto rounded-box border border-base-300 bg-base-100 p-1 shadow-md"
+	if q == "" {
+		listClass += " hidden"
+	}
+
+	var b strings.Builder
+	b.WriteString(`<ul id="sku_suggestions" class="`)
+	b.WriteString(listClass)
+	b.WriteString(`">`)
+
+	if q != "" && len(items) == 0 {
+		b.WriteString(`<li><span class="text-xs text-base-content/60">No matching SKUs</span></li>`)
+	}
+
+	for _, item := range items {
+		sku := strings.TrimSpace(item.SKU)
+		if sku == "" {
+			continue
+		}
+		desc := strings.TrimSpace(item.Description)
+		label := sku
+		if desc != "" {
+			label = sku + " - " + desc
+		}
+		b.WriteString(`<li><button type="button" class="justify-start text-left text-base py-2" data-on:click="(function(){var sku=document.getElementById('sku_input');var desc=document.getElementById('description_input');var qty=document.getElementById('qty_input');var list=document.getElementById('sku_suggestions');if(sku){sku.value=el.dataset.sku||'';}if(desc){desc.value=el.dataset.description||'';}if(list){list.innerHTML='';list.classList.add('hidden');}if(qty&&!qty.disabled){qty.focus();}})()" data-sku-suggestion="1" data-sku="`)
+		b.WriteString(html.EscapeString(sku))
+		b.WriteString(`" data-description="`)
+		b.WriteString(html.EscapeString(desc))
+		b.WriteString(`">`)
+		b.WriteString(html.EscapeString(label))
+		b.WriteString(`</button></li>`)
+	}
+
+	b.WriteString(`</ul>`)
+	_, _ = io.WriteString(w, b.String())
+}
+
 func parsePalletID(r *http.Request) (int64, error) {
 	idStr := chi.URLParam(r, "id")
+	return strconv.ParseInt(idStr, 10, 64)
+}
+
+func parseReceiptID(r *http.Request) (int64, error) {
+	idStr := chi.URLParam(r, "receiptID")
 	return strconv.ParseInt(idStr, 10, 64)
 }
 
@@ -230,6 +433,18 @@ func parseDate(v string) (time.Time, error) {
 		return t, nil
 	}
 	return time.Parse("02/01/2006", v)
+}
+
+func parseOptionalDate(v string) (*time.Time, error) {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return nil, nil
+	}
+	t, err := parseDate(v)
+	if err != nil {
+		return nil, err
+	}
+	return &t, nil
 }
 
 // ReceiptPhotoQueryHandler streams a stored stock photo for a receipt line.

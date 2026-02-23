@@ -178,8 +178,8 @@ func TestDeleteStockItems_DeletesMissingAndInUse(t *testing.T) {
 		}
 		_, err := tx.ExecContext(ctx, `
 INSERT INTO pallet_receipts (
-	project_id, pallet_id, stock_item_id, scanned_by_user_id, qty, damaged, damaged_qty, batch_number, expiry_date, created_at, updated_at
-) VALUES (1, 1, ?, 1, 1, 0, 0, 'BATCH', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`, keepID)
+	project_id, pallet_id, sku, description, scanned_by_user_id, qty, damaged, damaged_qty, batch_number, expiry_date, created_at, updated_at
+) VALUES (1, 1, 'KEEP', 'Keep', 1, 1, 0, 0, 'BATCH', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`)
 		return err
 	})
 	if err != nil {
@@ -190,22 +190,18 @@ INSERT INTO pallet_receipts (
 	if err != nil {
 		t.Fatalf("delete stock items: %v", err)
 	}
-	if deleted != 1 || failed != 2 {
+	if deleted != 2 || failed != 1 {
 		t.Fatalf("unexpected delete summary: deleted=%d failed=%d", deleted, failed)
 	}
 
 	var remaining int
-	var keptSKU string
 	err = db.WithReadTx(context.Background(), func(ctx context.Context, tx bun.Tx) error {
-		if err := tx.NewRaw(`SELECT COUNT(*) FROM stock_items`).Scan(ctx, &remaining); err != nil {
-			return err
-		}
-		return tx.NewRaw(`SELECT sku FROM stock_items LIMIT 1`).Scan(ctx, &keptSKU)
+		return tx.NewRaw(`SELECT COUNT(*) FROM stock_items`).Scan(ctx, &remaining)
 	})
 	if err != nil {
 		t.Fatalf("verify remaining items: %v", err)
 	}
-	if remaining != 1 || keptSKU != "KEEP" {
-		t.Fatalf("expected only KEEP to remain, got remaining=%d sku=%s", remaining, keptSKU)
+	if remaining != 0 {
+		t.Fatalf("expected no stock items to remain, got %d", remaining)
 	}
 }

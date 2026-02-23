@@ -70,11 +70,14 @@ templ PalletProgressFragment(summary Summary) {
 					<h1 class="text-xl font-bold sm:text-2xl">Pallet Progress</h1>
 					<p class="text-sm text-base-content/60">Project: { summary.ProjectName } ({ summary.ProjectClientName })</p>
 				</div>
-				<div class="flex flex-col sm:flex-row sm:items-end gap-2">
-					<form method="get" action="/tasker/pallets/progress" class="flex items-end gap-2">
+					<div class="flex flex-col sm:flex-row sm:items-end gap-2">
+						if summary.IsAdmin {
+							<a class="btn btn-sm bg-white text-black border border-base-300 hover:bg-base-100" href={ fmt.Sprintf("/tasker/projects/%d/logs", summary.ProjectID) }>View Logs</a>
+						}
+						<form method="get" action="/tasker/pallets/progress" class="flex items-end gap-2">
 						<fieldset class="fieldset">
 							<legend class="fieldset-legend text-xs uppercase tracking-wide">Status</legend>
-							<select class="select select-bordered select-sm" name="status">
+							<select class="select select-bordered select-sm" name="status" onchange="this.form.submit()">
 								<option value="all" selected?={ filterSelected(summary.StatusFilter, "all") }>All</option>
 								<option value="created" selected?={ filterSelected(summary.StatusFilter, "created") }>Created</option>
 								<option value="open" selected?={ filterSelected(summary.StatusFilter, "open") }>Open</option>
@@ -82,7 +85,6 @@ templ PalletProgressFragment(summary Summary) {
 								<option value="cancelled" selected?={ filterSelected(summary.StatusFilter, "cancelled") }>Cancelled</option>
 							</select>
 						</fieldset>
-						<button class="btn btn-outline btn-sm" type="submit">Filter</button>
 					</form>
 					if summary.CanCreatePallet {
 						<form method="post" action="/tasker/pallets/new/bulk" target="_blank" class="flex items-end gap-2">

@@ -301,99 +301,114 @@ func ProjectsPage(data PageData) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 31, "</td><td class=\"text-right\"><form method=\"post\" action=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 31, "</td><td class=\"text-right\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				var templ_7745c5c3_Var15 templ.SafeURL
-				templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinURLErrs(fmt.Sprintf("/tasker/projects/%d/activate", row.ID))
-				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/projects/projects.templ`, Line: 109, Col: 93}
+				if row.IsCurrent {
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 32, "<a class=\"btn btn-soft btn-primary btn-sm\" href=\"/tasker/pallets/progress\">Open Pallets</a>")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+				} else {
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 33, "<form method=\"post\" action=\"")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					var templ_7745c5c3_Var15 templ.SafeURL
+					templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinURLErrs(fmt.Sprintf("/tasker/projects/%d/activate", row.ID))
+					if templ_7745c5c3_Err != nil {
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/projects/projects.templ`, Line: 112, Col: 94}
+					}
+					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var15))
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 34, "\"><button class=\"btn btn-soft btn-primary btn-sm\" type=\"submit\">Open Pallets</button></form>")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
 				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var15))
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 32, "\"><button class=\"btn btn-soft btn-primary btn-sm\" type=\"submit\">Open Pallets</button></form></td>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 35, "</td>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				if data.IsAdmin {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 33, "<td class=\"text-right\"><form method=\"post\" action=\"")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 36, "<td class=\"text-right\"><form method=\"post\" action=\"")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 					var templ_7745c5c3_Var16 templ.SafeURL
 					templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinURLErrs(fmt.Sprintf("/tasker/projects/%d/status", row.ID))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/projects/projects.templ`, Line: 115, Col: 92}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/projects/projects.templ`, Line: 119, Col: 92}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 34, "\"><input type=\"hidden\" name=\"filter\" value=\"")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 37, "\"><input type=\"hidden\" name=\"filter\" value=\"")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 					var templ_7745c5c3_Var17 string
 					templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinStringErrs(data.Filter)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/projects/projects.templ`, Line: 116, Col: 69}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/projects/projects.templ`, Line: 120, Col: 69}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var17))
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 35, "\"> ")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 38, "\"> ")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 					if row.Status == "active" {
-						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 36, "<input type=\"hidden\" name=\"status\" value=\"inactive\"> <button class=\"btn btn-warning btn-soft btn-sm\" type=\"submit\">Set Inactive</button>")
+						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 39, "<input type=\"hidden\" name=\"status\" value=\"inactive\"> <button class=\"btn btn-warning btn-soft btn-sm\" type=\"submit\">Set Inactive</button>")
 						if templ_7745c5c3_Err != nil {
 							return templ_7745c5c3_Err
 						}
 					} else {
-						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 37, "<input type=\"hidden\" name=\"status\" value=\"active\"> <button class=\"btn btn-success btn-soft btn-sm\" type=\"submit\">Set Active</button>")
+						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 40, "<input type=\"hidden\" name=\"status\" value=\"active\"> <button class=\"btn btn-success btn-soft btn-sm\" type=\"submit\">Set Active</button>")
 						if templ_7745c5c3_Err != nil {
 							return templ_7745c5c3_Err
 						}
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 38, "</form></td>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 41, "</form></td>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 39, "</tr>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 42, "</tr>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 40, "</tbody></table></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 43, "</tbody></table></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 41, "</div></section></main>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 44, "</div></section></main>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		if data.IsAdmin {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 42, "<dialog id=\"create-project-modal\" class=\"modal\"><div class=\"modal-box max-w-2xl\"><div class=\"flex items-start justify-between gap-3\"><div><h2 class=\"text-xl font-bold\">Create Project</h2><p class=\"text-sm text-base-content/60\">Create a new project and set it as the active working context.</p></div><button class=\"btn btn-ghost btn-sm\" type=\"button\" data-on-click=\"document.getElementById('create-project-modal').close()\" onclick=\"document.getElementById('create-project-modal').close()\">Close</button></div><form method=\"post\" action=\"/tasker/projects\" class=\"grid gap-4 md:grid-cols-2 mt-3\"><fieldset class=\"fieldset\"><legend class=\"fieldset-legend\">Project Name</legend> <input class=\"input input-bordered\" name=\"name\" required placeholder=\"Receipt Run - Boba Formosa\"></fieldset><fieldset class=\"fieldset\"><legend class=\"fieldset-legend\">Client Name</legend> <input class=\"input input-bordered\" name=\"client_name\" required placeholder=\"Boba Formosa\"></fieldset><fieldset class=\"fieldset md:col-span-2\"><legend class=\"fieldset-legend\">Description</legend> <input class=\"input input-bordered\" name=\"description\" required placeholder=\"Inbound receipt project for client order\"></fieldset><fieldset class=\"fieldset\"><legend class=\"fieldset-legend\">Project Date</legend> <input class=\"input input-bordered\" type=\"date\" name=\"project_date\" value=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 45, "<dialog id=\"create-project-modal\" class=\"modal\"><div class=\"modal-box max-w-2xl\"><div class=\"flex items-start justify-between gap-3\"><div><h2 class=\"text-xl font-bold\">Create Project</h2><p class=\"text-sm text-base-content/60\">Create a new project and set it as the active working context.</p></div><button class=\"btn btn-ghost btn-sm\" type=\"button\" data-on-click=\"document.getElementById('create-project-modal').close()\" onclick=\"document.getElementById('create-project-modal').close()\">Close</button></div><form method=\"post\" action=\"/tasker/projects\" class=\"grid gap-4 md:grid-cols-2 mt-3\"><fieldset class=\"fieldset\"><legend class=\"fieldset-legend\">Project Name</legend> <input class=\"input input-bordered\" name=\"name\" required placeholder=\"Receipt Run - Boba Formosa\"></fieldset><fieldset class=\"fieldset\"><legend class=\"fieldset-legend\">Client Name</legend> <input class=\"input input-bordered\" name=\"client_name\" required placeholder=\"Boba Formosa\"></fieldset><fieldset class=\"fieldset md:col-span-2\"><legend class=\"fieldset-legend\">Description</legend> <input class=\"input input-bordered\" name=\"description\" required placeholder=\"Inbound receipt project for client order\"></fieldset><fieldset class=\"fieldset\"><legend class=\"fieldset-legend\">Project Date</legend> <input class=\"input input-bordered\" type=\"date\" name=\"project_date\" value=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var18 string
 			templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.JoinStringErrs(data.DefaultDate)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/projects/projects.templ`, Line: 167, Col: 100}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/projects/projects.templ`, Line: 171, Col: 100}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 43, "\" required></fieldset><fieldset class=\"fieldset\"><legend class=\"fieldset-legend\">Code (Optional)</legend> <input class=\"input input-bordered font-mono\" name=\"code\" placeholder=\"boba-formosa-feb26\"></fieldset><fieldset class=\"fieldset\"><legend class=\"fieldset-legend\">Status</legend> <select class=\"select select-bordered\" name=\"status\"><option value=\"active\">Active</option> <option value=\"inactive\">Inactive</option></select></fieldset><div class=\"md:col-span-2 flex flex-col-reverse sm:flex-row sm:justify-end gap-2\"><button class=\"btn btn-ghost\" type=\"button\" data-on-click=\"document.getElementById('create-project-modal').close()\" onclick=\"document.getElementById('create-project-modal').close()\">Cancel</button> <button class=\"btn btn-primary\" type=\"submit\">Create Project</button></div></form></div><form method=\"dialog\" class=\"modal-backdrop\"><button type=\"submit\">close</button></form></dialog>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 46, "\" required></fieldset><fieldset class=\"fieldset\"><legend class=\"fieldset-legend\">Code (Optional)</legend> <input class=\"input input-bordered font-mono\" name=\"code\" placeholder=\"boba-formosa-feb26\"></fieldset><fieldset class=\"fieldset\"><legend class=\"fieldset-legend\">Status</legend> <select class=\"select select-bordered\" name=\"status\"><option value=\"active\">Active</option> <option value=\"inactive\">Inactive</option></select></fieldset><div class=\"md:col-span-2 flex flex-col-reverse sm:flex-row sm:justify-end gap-2\"><button class=\"btn btn-ghost\" type=\"button\" data-on-click=\"document.getElementById('create-project-modal').close()\" onclick=\"document.getElementById('create-project-modal').close()\">Cancel</button> <button class=\"btn btn-primary\" type=\"submit\">Create Project</button></div></form></div><form method=\"dialog\" class=\"modal-backdrop\"><button type=\"submit\">close</button></form></dialog>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -406,7 +421,7 @@ func ProjectsPage(data PageData) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 44, "</body></html>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 47, "</body></html>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

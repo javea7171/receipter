@@ -91,8 +91,8 @@ func TestSaveReceipt_MergesSamePalletSkuBatchExpiry(t *testing.T) {
 	seedPallet(t, db, 1)
 
 	expiry, _ := time.Parse("2006-01-02", "2026-12-31")
-	in1 := ReceiptInput{PalletID: 1, SKU: "ABC", Description: "Alpha", Qty: 2, BatchNumber: "B1", ExpiryDate: expiry}
-	in2 := ReceiptInput{PalletID: 1, SKU: "ABC", Description: "Alpha", Qty: 3, BatchNumber: "B1", ExpiryDate: expiry}
+	in1 := ReceiptInput{PalletID: 1, SKU: "ABC", Description: "Alpha", Qty: 2, BatchNumber: "B1", ExpiryDate: &expiry}
+	in2 := ReceiptInput{PalletID: 1, SKU: "ABC", Description: "Alpha", Qty: 3, BatchNumber: "B1", ExpiryDate: &expiry}
 
 	if err := SaveReceipt(context.Background(), db, nil, 1, in1); err != nil {
 		t.Fatalf("save receipt 1: %v", err)
@@ -115,8 +115,8 @@ func TestSaveReceipt_MergesWhenBatchBlankAndExpirySame(t *testing.T) {
 	seedPallet(t, db, 2)
 
 	expiry, _ := time.Parse("2006-01-02", "2027-01-15")
-	in1 := ReceiptInput{PalletID: 2, SKU: "XYZ", Description: "Xray", Qty: 1, BatchNumber: "", ExpiryDate: expiry}
-	in2 := ReceiptInput{PalletID: 2, SKU: "XYZ", Description: "Xray", Qty: 4, BatchNumber: "", ExpiryDate: expiry}
+	in1 := ReceiptInput{PalletID: 2, SKU: "XYZ", Description: "Xray", Qty: 1, BatchNumber: "", ExpiryDate: &expiry}
+	in2 := ReceiptInput{PalletID: 2, SKU: "XYZ", Description: "Xray", Qty: 4, BatchNumber: "", ExpiryDate: &expiry}
 
 	if err := SaveReceipt(context.Background(), db, nil, 1, in1); err != nil {
 		t.Fatalf("save receipt 1: %v", err)
@@ -134,13 +134,36 @@ func TestSaveReceipt_MergesWhenBatchBlankAndExpirySame(t *testing.T) {
 	}
 }
 
+func TestSaveReceipt_MergesWhenExpiryBlank(t *testing.T) {
+	db := openTestDB(t)
+	seedPallet(t, db, 22)
+
+	in1 := ReceiptInput{PalletID: 22, SKU: "NOEXP", Description: "No expiry", Qty: 2, BatchNumber: "N1", ExpiryDate: nil}
+	in2 := ReceiptInput{PalletID: 22, SKU: "NOEXP", Description: "No expiry", Qty: 3, BatchNumber: "N1", ExpiryDate: nil}
+
+	if err := SaveReceipt(context.Background(), db, nil, 1, in1); err != nil {
+		t.Fatalf("save receipt 1: %v", err)
+	}
+	if err := SaveReceipt(context.Background(), db, nil, 1, in2); err != nil {
+		t.Fatalf("save receipt 2: %v", err)
+	}
+
+	rows, qty := countReceiptRows(t, db, 22)
+	if rows != 1 {
+		t.Fatalf("expected 1 merged row for blank expiry, got %d", rows)
+	}
+	if qty != 5 {
+		t.Fatalf("expected qty 5, got %d", qty)
+	}
+}
+
 func TestSaveReceipt_DoesNotMergeDifferentBatch(t *testing.T) {
 	db := openTestDB(t)
 	seedPallet(t, db, 3)
 
 	expiry, _ := time.Parse("2006-01-02", "2027-05-01")
-	in1 := ReceiptInput{PalletID: 3, SKU: "ABC", Description: "Alpha", Qty: 2, BatchNumber: "B1", ExpiryDate: expiry}
-	in2 := ReceiptInput{PalletID: 3, SKU: "ABC", Description: "Alpha", Qty: 3, BatchNumber: "B2", ExpiryDate: expiry}
+	in1 := ReceiptInput{PalletID: 3, SKU: "ABC", Description: "Alpha", Qty: 2, BatchNumber: "B1", ExpiryDate: &expiry}
+	in2 := ReceiptInput{PalletID: 3, SKU: "ABC", Description: "Alpha", Qty: 3, BatchNumber: "B2", ExpiryDate: &expiry}
 
 	if err := SaveReceipt(context.Background(), db, nil, 1, in1); err != nil {
 		t.Fatalf("save receipt 1: %v", err)
@@ -163,8 +186,8 @@ func TestSaveReceipt_DoesNotMergeDifferentCaseSize(t *testing.T) {
 	seedPallet(t, db, 33)
 
 	expiry, _ := time.Parse("2006-01-02", "2027-05-01")
-	in1 := ReceiptInput{PalletID: 33, SKU: "CASE", Description: "Case size one", Qty: 2, CaseSize: 6, BatchNumber: "CS1", ExpiryDate: expiry}
-	in2 := ReceiptInput{PalletID: 33, SKU: "CASE", Description: "Case size two", Qty: 3, CaseSize: 12, BatchNumber: "CS1", ExpiryDate: expiry}
+	in1 := ReceiptInput{PalletID: 33, SKU: "CASE", Description: "Case size one", Qty: 2, CaseSize: 6, BatchNumber: "CS1", ExpiryDate: &expiry}
+	in2 := ReceiptInput{PalletID: 33, SKU: "CASE", Description: "Case size two", Qty: 3, CaseSize: 12, BatchNumber: "CS1", ExpiryDate: &expiry}
 
 	if err := SaveReceipt(context.Background(), db, nil, 1, in1); err != nil {
 		t.Fatalf("save receipt 1: %v", err)
@@ -195,7 +218,7 @@ func TestSaveReceipt_DamagedQtyCannotExceedQty(t *testing.T) {
 		Damaged:     true,
 		DamagedQty:  3,
 		BatchNumber: "D1",
-		ExpiryDate:  expiry,
+		ExpiryDate:  &expiry,
 	}
 
 	err := SaveReceipt(context.Background(), db, nil, 1, in)
@@ -204,6 +227,56 @@ func TestSaveReceipt_DamagedQtyCannotExceedQty(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "damaged qty cannot exceed qty") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestSaveReceipt_SplitsDamagedAndNonDamagedLines(t *testing.T) {
+	db := openTestDB(t)
+	seedPallet(t, db, 44)
+
+	expiry, _ := time.Parse("2006-01-02", "2027-08-15")
+	in := ReceiptInput{
+		PalletID:    44,
+		SKU:         "SPLIT-1",
+		Description: "Split damaged",
+		Qty:         3,
+		Damaged:     true,
+		DamagedQty:  2,
+		BatchNumber: "S1",
+		ExpiryDate:  &expiry,
+	}
+	if err := SaveReceipt(context.Background(), db, nil, 1, in); err != nil {
+		t.Fatalf("save split receipt: %v", err)
+	}
+
+	var rows, nonDamagedQty, damagedQty int64
+	err := db.WithReadTx(context.Background(), func(ctx context.Context, tx bun.Tx) error {
+		if err := tx.NewRaw(`
+SELECT COUNT(*)
+FROM pallet_receipts pr
+WHERE pr.pallet_id = ? AND pr.sku = ?`, 44, "SPLIT-1").Scan(ctx, &rows); err != nil {
+			return err
+		}
+		if err := tx.NewRaw(`
+SELECT COALESCE(SUM(pr.qty), 0)
+FROM pallet_receipts pr
+WHERE pr.pallet_id = ? AND pr.sku = ? AND pr.damaged = 0`, 44, "SPLIT-1").Scan(ctx, &nonDamagedQty); err != nil {
+			return err
+		}
+		return tx.NewRaw(`
+SELECT COALESCE(SUM(pr.qty), 0)
+FROM pallet_receipts pr
+WHERE pr.pallet_id = ? AND pr.sku = ? AND pr.damaged = 1`, 44, "SPLIT-1").Scan(ctx, &damagedQty)
+	})
+	if err != nil {
+		t.Fatalf("load split rows: %v", err)
+	}
+
+	if rows != 2 {
+		t.Fatalf("expected 2 split rows, got %d", rows)
+	}
+	if nonDamagedQty != 1 || damagedQty != 2 {
+		t.Fatalf("expected split qtys non-damaged=1 damaged=2, got non-damaged=%d damaged=%d", nonDamagedQty, damagedQty)
 	}
 }
 
@@ -218,7 +291,7 @@ func TestSaveReceipt_PromotesCreatedPalletToOpenOnFirstLine(t *testing.T) {
 		Description: "Promote status",
 		Qty:         1,
 		BatchNumber: "PR1",
-		ExpiryDate:  expiry,
+		ExpiryDate:  &expiry,
 	}
 	if err := SaveReceipt(context.Background(), db, nil, 1, in); err != nil {
 		t.Fatalf("save receipt: %v", err)
@@ -247,7 +320,7 @@ func TestSaveReceipt_CancelledPalletIsReadOnly(t *testing.T) {
 		Description: "Should not save",
 		Qty:         1,
 		BatchNumber: "C1",
-		ExpiryDate:  expiry,
+		ExpiryDate:  &expiry,
 	}
 	err := SaveReceipt(context.Background(), db, nil, 1, in)
 	if err == nil {
@@ -270,7 +343,7 @@ func TestLoadPageData_IncludesPrimaryAndMultiPhotoLinks(t *testing.T) {
 		Qty:            2,
 		CaseSize:       24,
 		BatchNumber:    "PB1",
-		ExpiryDate:     expiry,
+		ExpiryDate:     &expiry,
 		StockPhotoBlob: []byte{0xFF, 0xD8, 0xFF, 0xD9},
 		StockPhotoMIME: "image/jpeg",
 		StockPhotoName: "primary.jpg",
@@ -325,8 +398,8 @@ func TestSaveReceipt_SetsAndUpdatesScannerAttribution(t *testing.T) {
 	}
 
 	expiry, _ := time.Parse("2006-01-02", "2028-05-01")
-	in1 := ReceiptInput{PalletID: 7, SKU: "ATTR-1", Description: "Attribution", Qty: 1, BatchNumber: "A1", ExpiryDate: expiry}
-	in2 := ReceiptInput{PalletID: 7, SKU: "ATTR-1", Description: "Attribution", Qty: 2, BatchNumber: "A1", ExpiryDate: expiry}
+	in1 := ReceiptInput{PalletID: 7, SKU: "ATTR-1", Description: "Attribution", Qty: 1, BatchNumber: "A1", ExpiryDate: &expiry}
+	in2 := ReceiptInput{PalletID: 7, SKU: "ATTR-1", Description: "Attribution", Qty: 2, BatchNumber: "A1", ExpiryDate: &expiry}
 
 	if err := SaveReceipt(context.Background(), db, nil, 1, in1); err != nil {
 		t.Fatalf("save first receipt: %v", err)

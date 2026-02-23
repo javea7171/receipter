@@ -309,7 +309,7 @@ Tasks:
 - `sessions`: `id`, `user_id`, `expires_at`, timestamps
 - `stock_items`: `id`, `sku` (unique), `description`, timestamps
 - `pallets`: `id`, `status` (`open|closed`), `created_at`, `closed_at`, `reopened_at`
-- `pallet_receipts`: `id`, `pallet_id`, `stock_item_id`, `qty`, `batch_number`, `expiry_date`, `carton_barcode`, `item_barcode`, `no_outer_barcode`, `no_inner_barcode`, timestamps
+- `pallet_receipts`: `id`, `project_id`, `pallet_id`, `sku`, `description`, `qty`, `batch_number`, `expiry_date`, `carton_barcode`, `item_barcode`, `no_outer_barcode`, `no_inner_barcode`, timestamps
 - `stock_import_runs`
 - `export_runs`
 - `audit_logs`: `id`, `user_id`, `action`, `entity_type`, `entity_id`, `before_json`, `after_json`, `created_at`
