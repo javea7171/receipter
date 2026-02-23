@@ -24,6 +24,7 @@ type Session struct {
 
 	ID                string         `bun:"id,pk"`
 	UserID            int64          `bun:"user_id,notnull"`
+	ActiveProjectID   *int64         `bun:"active_project_id"`
 	User              User           `bun:"rel:belongs-to,join:user_id=id"`
 	UserRoles         []string       `bun:"-"`
 	ScreenPermissions map[string]int `bun:"-"`
@@ -37,12 +38,28 @@ func (s Session) Expired() bool {
 	return time.Now().After(s.ExpiresAt)
 }
 
+// Project groups pallets/stock/import/export data for a client project run.
+type Project struct {
+	bun.BaseModel `bun:"table:projects,alias:pj"`
+
+	ID          int64     `bun:"id,pk,autoincrement"`
+	Name        string    `bun:"name,notnull"`
+	Description string    `bun:"description,notnull"`
+	ProjectDate time.Time `bun:"project_date,notnull"`
+	ClientName  string    `bun:"client_name,notnull"`
+	Code        string    `bun:"code,notnull,unique"`
+	Status      string    `bun:"status,notnull"`
+	CreatedAt   time.Time `bun:"created_at,notnull,default:current_timestamp"`
+	UpdatedAt   time.Time `bun:"updated_at,notnull,default:current_timestamp"`
+}
+
 // StockItem is the item master imported from CSV.
 type StockItem struct {
 	bun.BaseModel `bun:"table:stock_items,alias:si"`
 
 	ID          int64     `bun:"id,pk,autoincrement"`
-	SKU         string    `bun:"sku,notnull,unique"`
+	ProjectID   int64     `bun:"project_id,notnull"`
+	SKU         string    `bun:"sku,notnull"`
 	Description string    `bun:"description,notnull"`
 	CreatedAt   time.Time `bun:"created_at,notnull,default:current_timestamp"`
 	UpdatedAt   time.Time `bun:"updated_at,notnull,default:current_timestamp"`
@@ -53,6 +70,7 @@ type Pallet struct {
 	bun.BaseModel `bun:"table:pallets,alias:p"`
 
 	ID         int64      `bun:"id,pk"`
+	ProjectID  int64      `bun:"project_id,notnull"`
 	Status     string     `bun:"status,notnull"`
 	CreatedAt  time.Time  `bun:"created_at,notnull,default:current_timestamp"`
 	ClosedAt   *time.Time `bun:"closed_at"`
@@ -64,6 +82,7 @@ type PalletReceipt struct {
 	bun.BaseModel `bun:"table:pallet_receipts,alias:pr"`
 
 	ID              int64     `bun:"id,pk,autoincrement"`
+	ProjectID       int64     `bun:"project_id,notnull"`
 	PalletID        int64     `bun:"pallet_id,notnull"`
 	StockItemID     int64     `bun:"stock_item_id,notnull"`
 	ScannedByUserID int64     `bun:"scanned_by_user_id,notnull"`

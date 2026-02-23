@@ -32,7 +32,12 @@ templ PalletReceiptPage(data PageData) {
 							} else {
 								<span class="badge badge-neutral">{ data.PalletStatus }</span>
 							}
-							<span class="text-sm text-base-content/60">{ fmt.Sprintf("%d lines recorded", len(data.Lines)) }</span>
+							if data.ProjectStatus == "active" {
+								<span class="badge badge-success badge-soft">project active</span>
+							} else {
+								<span class="badge badge-warning">project inactive</span>
+							}
+							<span class="text-sm text-base-content/60">{ data.ProjectName } ({ data.ClientName })</span>
 						</div>
 					</div>
 					<a href="/tasker/pallets/progress" class="btn btn-ghost btn-sm">

@@ -11,7 +11,7 @@ import (
 	"receipter/infrastructure/sqlite"
 )
 
-func writeReceiptCSV(ctx context.Context, db *sqlite.DB, w io.Writer, palletID *int64) error {
+func writeReceiptCSV(ctx context.Context, db *sqlite.DB, w io.Writer, projectID int64, palletID *int64) error {
 	writer := csv.NewWriter(w)
 	defer writer.Flush()
 
@@ -42,8 +42,10 @@ SELECT pr.pallet_id, si.sku, si.description, pr.qty,
 FROM pallet_receipts pr
 JOIN stock_items si ON si.id = pr.stock_item_id`
 		args := make([]any, 0)
+		q += " WHERE pr.project_id = ?"
+		args = append(args, projectID)
 		if palletID != nil {
-			q += " WHERE pr.pallet_id = ?"
+			q += " AND pr.pallet_id = ?"
 			args = append(args, *palletID)
 		}
 		q += " ORDER BY pr.pallet_id ASC, si.sku ASC"
@@ -71,7 +73,7 @@ JOIN stock_items si ON si.id = pr.stock_item_id`
 	return writer.Error()
 }
 
-func writePalletStatusCSV(ctx context.Context, db *sqlite.DB, w io.Writer) error {
+func writePalletStatusCSV(ctx context.Context, db *sqlite.DB, w io.Writer, projectID int64) error {
 	writer := csv.NewWriter(w)
 	defer writer.Flush()
 	if err := writer.Write([]string{"pallet_id", "status", "line_count", "created_at", "closed_at", "reopened_at"}); err != nil {
@@ -96,7 +98,8 @@ SELECT p.id, p.status,
        COALESCE(strftime('%d/%m/%Y %H:%M', p.closed_at), '') AS closed_at,
        COALESCE(strftime('%d/%m/%Y %H:%M', p.reopened_at), '') AS reopened_at
 FROM pallets p
-ORDER BY p.id ASC`).Scan(ctx, &rows)
+WHERE p.project_id = ?
+ORDER BY p.id ASC`, projectID).Scan(ctx, &rows)
 	})
 	if err != nil {
 		return err
@@ -110,15 +113,30 @@ ORDER BY p.id ASC`).Scan(ctx, &rows)
 	return writer.Error()
 }
 
-func recordExportRun(ctx context.Context, db *sqlite.DB, userID *int64, exportType string) error {
+func recordExportRun(ctx context.Context, db *sqlite.DB, userID *int64, projectID *int64, exportType string) error {
 	return db.WithWriteTx(ctx, func(ctx context.Context, tx bun.Tx) error {
-		if userID == nil {
-			_, err := tx.ExecContext(ctx, `INSERT INTO export_runs (user_id, export_type, created_at) VALUES (NULL, ?, CURRENT_TIMESTAMP)`, exportType)
-			return err
+		var uid any = nil
+		var pid any = nil
+		if userID != nil {
+			uid = *userID
 		}
-		_, err := tx.ExecContext(ctx, `INSERT INTO export_runs (user_id, export_type, created_at) VALUES (?, ?, CURRENT_TIMESTAMP)`, *userID, exportType)
+		if projectID != nil {
+			pid = *projectID
+		}
+		_, err := tx.ExecContext(ctx, `INSERT INTO export_runs (user_id, project_id, export_type, created_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)`, uid, pid, exportType)
 		return err
 	})
+}
+
+func palletBelongsToProject(ctx context.Context, db *sqlite.DB, projectID, palletID int64) (bool, error) {
+	var count int
+	err := db.WithReadTx(ctx, func(ctx context.Context, tx bun.Tx) error {
+		return tx.NewRaw(`SELECT COUNT(1) FROM pallets WHERE id = ? AND project_id = ?`, palletID, projectID).Scan(ctx, &count)
+	})
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }
 
 func exportTypePallet(palletID int64) string {

@@ -54,6 +54,15 @@ func setupIntegrationServer(t *testing.T) (*integrationEnv, *http.Client) {
 	if err := login.UpsertUserPasswordHash(context.Background(), db, "scanner1", "scanner", "Scanner123!Receipter"); err != nil {
 		t.Fatalf("seed scanner user: %v", err)
 	}
+	if err := db.WithWriteTx(context.Background(), func(ctx context.Context, tx bun.Tx) error {
+		_, err := tx.ExecContext(ctx, `
+INSERT INTO projects (name, description, project_date, client_name, code, status, created_at, updated_at)
+VALUES ('Integration Default', 'Default project for integration tests', DATE('now'), 'Test Client', 'it-default', 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+`)
+		return err
+	}); err != nil {
+		t.Fatalf("seed default project: %v", err)
+	}
 
 	sessionCache := cache.NewUserSessionCache()
 	userCache := cache.NewUserCache()
@@ -174,7 +183,8 @@ func loginAs(t *testing.T, client *http.Client, baseURL, username, password stri
 	if resp.StatusCode != http.StatusSeeOther {
 		t.Fatalf("expected login 303, got %d", resp.StatusCode)
 	}
-	if !strings.Contains(resp.Header.Get("Location"), "/tasker/pallets/progress") {
+	location := resp.Header.Get("Location")
+	if !strings.Contains(location, "/tasker/pallets/progress") && !strings.Contains(location, "/tasker/projects") {
 		t.Fatalf("unexpected login redirect: %s", resp.Header.Get("Location"))
 	}
 	_ = resp.Body.Close()
@@ -235,6 +245,18 @@ func stockItemCount(t *testing.T, db *sqlite.DB) int64 {
 		t.Fatalf("count stock items: %v", err)
 	}
 	return count
+}
+
+func projectIDByCode(t *testing.T, db *sqlite.DB, code string) int64 {
+	t.Helper()
+	var id int64
+	err := db.WithReadTx(context.Background(), func(ctx context.Context, tx bun.Tx) error {
+		return tx.NewRaw(`SELECT id FROM projects WHERE code = ? LIMIT 1`, code).Scan(ctx, &id)
+	})
+	if err != nil {
+		t.Fatalf("load project id for code %s: %v", code, err)
+	}
+	return id
 }
 
 func userRoleByUsername(t *testing.T, db *sqlite.DB, username string) (role string, found bool) {
@@ -494,8 +516,11 @@ func TestScannerRestrictedScreensAndProgressUsesScanView(t *testing.T) {
 	if !strings.Contains(progressText, "/tasker/pallets/1/content-label") {
 		t.Fatalf("expected scanner progress to include content view button for pallet 1")
 	}
-	if !strings.Contains(progressText, `/tasker/pallets/progress`) || !strings.Contains(progressText, `/tasker/scan/pallet`) {
-		t.Fatalf("scanner navigation should include pallets and scan links")
+	if !strings.Contains(progressText, `/tasker/projects`) || !strings.Contains(progressText, `/tasker/scan/pallet`) {
+		t.Fatalf("scanner navigation should include projects and scan links")
+	}
+	if strings.Contains(progressText, `>Pallets</a>`) {
+		t.Fatalf("scanner navigation should not include pallets menu link")
 	}
 	if strings.Contains(progressText, `/tasker/exports`) || strings.Contains(progressText, `/tasker/settings/notifications`) || strings.Contains(progressText, `/tasker/admin/users`) {
 		t.Fatalf("scanner navigation should not include admin links")
@@ -533,8 +558,11 @@ func TestScannerRestrictedScreensAndProgressUsesScanView(t *testing.T) {
 		t.Fatalf("read scanner scan page body: %v", err)
 	}
 	scanText := string(scanBody)
-	if !strings.Contains(scanText, `/tasker/pallets/progress`) || !strings.Contains(scanText, `/tasker/scan/pallet`) {
-		t.Fatalf("scanner scan page navigation should include pallets and scan links")
+	if !strings.Contains(scanText, `/tasker/projects`) || !strings.Contains(scanText, `/tasker/scan/pallet`) {
+		t.Fatalf("scanner scan page navigation should include projects and scan links")
+	}
+	if strings.Contains(scanText, `>Pallets</a>`) {
+		t.Fatalf("scanner scan page navigation should not include pallets menu link")
 	}
 	if strings.Contains(scanText, `/tasker/exports`) || strings.Contains(scanText, `/tasker/settings/notifications`) || strings.Contains(scanText, `/tasker/admin/users`) {
 		t.Fatalf("scanner scan page navigation should not include admin links")
@@ -553,8 +581,11 @@ func TestScannerRestrictedScreensAndProgressUsesScanView(t *testing.T) {
 		t.Fatalf("read scanner receipt page body: %v", err)
 	}
 	receiptText := string(receiptBody)
-	if !strings.Contains(receiptText, `/tasker/pallets/progress`) || !strings.Contains(receiptText, `/tasker/scan/pallet`) {
-		t.Fatalf("scanner receipt page navigation should include pallets and scan links")
+	if !strings.Contains(receiptText, `/tasker/projects`) || !strings.Contains(receiptText, `/tasker/scan/pallet`) {
+		t.Fatalf("scanner receipt page navigation should include projects and scan links")
+	}
+	if strings.Contains(receiptText, `>Pallets</a>`) {
+		t.Fatalf("scanner receipt page navigation should not include pallets menu link")
 	}
 	if strings.Contains(receiptText, `/tasker/exports`) || strings.Contains(receiptText, `/tasker/settings/notifications`) || strings.Contains(receiptText, `/tasker/admin/users`) {
 		t.Fatalf("scanner receipt page navigation should not include admin links")
@@ -733,6 +764,113 @@ func TestClosedPalletReceiptPermissions_ScannerDeniedAdminAllowed(t *testing.T) 
 	}
 }
 
+func TestInactiveProjectPalletCannotBeModifiedByScannerOrAdmin(t *testing.T) {
+	env, _ := setupIntegrationServer(t)
+	adminClient := newHTTPClient(t)
+	scannerClient := newHTTPClient(t)
+
+	loginAs(t, adminClient, env.server.URL, "admin", "Admin123!Receipter")
+
+	resp := postForm(t, adminClient, env.server.URL, "/tasker/projects", url.Values{
+		"name":         {"Inactive Project Test"},
+		"description":  {"Integration inactive project flow"},
+		"project_date": {"2026-02-23"},
+		"client_name":  {"Boba Formosa"},
+		"code":         {"inactive-it"},
+		"status":       {"active"},
+	})
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected create project 303, got %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+
+	projectID := projectIDByCode(t, env.db, "inactive-it")
+
+	resp = postForm(t, adminClient, env.server.URL, "/tasker/projects/"+strconv.FormatInt(projectID, 10)+"/activate", nil)
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected activate project 303, got %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+
+	resp = postForm(t, adminClient, env.server.URL, "/tasker/pallets/new", nil)
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected create pallet on project 303, got %d", resp.StatusCode)
+	}
+	if !strings.Contains(resp.Header.Get("Location"), "/tasker/pallets/1/label") {
+		t.Fatalf("expected pallet 1 label redirect, got %s", resp.Header.Get("Location"))
+	}
+	_ = resp.Body.Close()
+
+	resp = postForm(t, adminClient, env.server.URL, "/tasker/projects/"+strconv.FormatInt(projectID, 10)+"/status", url.Values{
+		"status": {"inactive"},
+		"filter": {"active"},
+	})
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected deactivate project 303, got %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+
+	loginAs(t, scannerClient, env.server.URL, "scanner1", "Scanner123!Receipter")
+
+	resp = get(t, scannerClient, env.server.URL, "/tasker/pallets/1/receipt")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected scanner receipt view 200, got %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read scanner inactive receipt body: %v", err)
+	}
+	_ = resp.Body.Close()
+	text := string(body)
+	if !strings.Contains(text, "Project is inactive. This pallet is read-only.") {
+		t.Fatalf("expected inactive read-only banner on receipt page")
+	}
+
+	rowsBefore, qtyBefore := countReceiptRowsQty(t, env.db, 1)
+
+	resp = postForm(t, scannerClient, env.server.URL, "/tasker/api/pallets/1/receipts", url.Values{
+		"sku":          {"SKU-INACTIVE"},
+		"description":  {"Should not save"},
+		"qty":          {"1"},
+		"batch_number": {"IB1"},
+		"expiry_date":  {"2028-01-01"},
+	})
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected scanner inactive receipt post 303, got %d", resp.StatusCode)
+	}
+	if !strings.Contains(resp.Header.Get("Location"), "inactive+projects+are+read-only") {
+		t.Fatalf("expected inactive project error redirect, got %s", resp.Header.Get("Location"))
+	}
+	_ = resp.Body.Close()
+
+	rowsAfter, qtyAfter := countReceiptRowsQty(t, env.db, 1)
+	if rowsAfter != rowsBefore || qtyAfter != qtyBefore {
+		t.Fatalf("expected no receipt changes on inactive project; before rows=%d qty=%d after rows=%d qty=%d", rowsBefore, qtyBefore, rowsAfter, qtyAfter)
+	}
+
+	loginAs(t, adminClient, env.server.URL, "admin", "Admin123!Receipter")
+
+	resp = postForm(t, adminClient, env.server.URL, "/tasker/api/pallets/1/receipts", url.Values{
+		"sku":          {"SKU-INACTIVE-ADMIN"},
+		"description":  {"Admin should not save"},
+		"qty":          {"2"},
+		"batch_number": {"IB2"},
+		"expiry_date":  {"2028-01-02"},
+	})
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected admin inactive receipt post 303, got %d", resp.StatusCode)
+	}
+	if !strings.Contains(resp.Header.Get("Location"), "inactive+projects+are+read-only") {
+		t.Fatalf("expected inactive project error redirect for admin, got %s", resp.Header.Get("Location"))
+	}
+	_ = resp.Body.Close()
+
+	rowsFinal, qtyFinal := countReceiptRowsQty(t, env.db, 1)
+	if rowsFinal != rowsBefore || qtyFinal != qtyBefore {
+		t.Fatalf("expected admin denied on inactive project; before rows=%d qty=%d final rows=%d qty=%d", rowsBefore, qtyBefore, rowsFinal, qtyFinal)
+	}
+}
+
 func TestAdminStockImportListAndDelete(t *testing.T) {
 	env, client := setupIntegrationServer(t)
 	loginAs(t, client, env.server.URL, "admin", "Admin123!Receipter")
@@ -787,6 +925,49 @@ func TestAdminStockImportListAndDelete(t *testing.T) {
 
 	if count := stockItemCount(t, env.db); count != 0 {
 		t.Fatalf("expected all stock records deleted, got %d", count)
+	}
+}
+
+func TestStockImportInvalidHeaderShowsErrorMessage(t *testing.T) {
+	env, client := setupIntegrationServer(t)
+	loginAs(t, client, env.server.URL, "admin", "Admin123!Receipter")
+
+	resp := postMultipartFile(
+		t,
+		client,
+		env.server.URL,
+		"/tasker/stock/import",
+		"file",
+		"invalid.csv",
+		[]byte("wrong,description\nSKU-A,Alpha\n"),
+	)
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected invalid stock import 303, got %d", resp.StatusCode)
+	}
+	location := resp.Header.Get("Location")
+	if !strings.Contains(location, "/tasker/stock/import?status=") {
+		t.Fatalf("expected stock import redirect with status, got %s", location)
+	}
+	if !strings.Contains(location, "invalid+CSV+header") {
+		t.Fatalf("expected invalid header message in redirect, got %s", location)
+	}
+	_ = resp.Body.Close()
+
+	resp = get(t, client, env.server.URL, location)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected stock import page 200, got %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read stock import page body: %v", err)
+	}
+	_ = resp.Body.Close()
+	text := string(body)
+	if !strings.Contains(text, "Error: invalid CSV header; expected sku,description") {
+		t.Fatalf("expected invalid header error banner on import page")
+	}
+	if !strings.Contains(text, "Required header row") || !strings.Contains(text, "sku,description") {
+		t.Fatalf("expected required header guidance on import page")
 	}
 }
 

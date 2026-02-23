@@ -59,13 +59,13 @@ templ PalletProgressFragment(summary Summary) {
 		data-signals:lastScrollY="0"
 		data-on:datastar-fetch="evt.detail.type === 'started' && ($lastScrollY = window.scrollY); evt.detail.type === 'finished' && requestAnimationFrame(() => window.scrollTo(0, $lastScrollY));"
 		data-on-interval__duration.3s={ progressAutoRefreshExpr(summary.StatusFilter) }>
-		@sharedhtml.TopBarWithRole("Pallet Progress", summary.CanCreatePallet)
+		@sharedhtml.TopBarWithRole("Pallet Progress", summary.IsAdmin)
 		<main class="container-shell space-y-4">
 			<!-- Header -->
 			<div class="page-header">
 				<div>
 					<h1 class="text-xl font-bold sm:text-2xl">Pallet Progress</h1>
-					<p class="text-sm text-base-content/60">Track created, open, and closed pallets</p>
+					<p class="text-sm text-base-content/60">Project: { summary.ProjectName } ({ summary.ProjectClientName })</p>
 				</div>
 				<div class="flex flex-col sm:flex-row sm:items-end gap-2">
 					<form method="get" action="/tasker/pallets/progress" class="flex items-end gap-2">
@@ -92,6 +92,13 @@ templ PalletProgressFragment(summary Summary) {
 					}
 				</div>
 			</div>
+
+			<!-- Stats -->
+			if summary.ProjectStatus != "active" {
+				<div role="alert" class="alert alert-warning alert-soft">
+					<span>This project is inactive. Pallet actions are read-only.</span>
+				</div>
+			}
 
 			<!-- Stats -->
 			<section class="grid grid-cols-3 gap-3">
@@ -223,7 +230,7 @@ templ PalletProgressFragment(summary Summary) {
 				</div>
 			</section>
 		</main>
-		@sharedhtml.DockWithRole(sharedhtml.NavPallets, summary.CanCreatePallet)
+		@sharedhtml.DockWithRole(sharedhtml.NavProjects, summary.IsAdmin)
 		@templ.Raw(sharedhtml.CSRFFormScript())
 	</div>
 }

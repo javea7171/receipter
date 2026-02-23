@@ -5,6 +5,10 @@ import (
 	sharedhtml "receipter/frontend/shared/html"
 )
 
+func canModifyStock(projectStatus string) bool {
+	return projectStatus == "active"
+}
+
 templ StockImportPage(data PageData) {
 	<!doctype html>
 	<html data-theme="light">
@@ -21,8 +25,13 @@ templ StockImportPage(data PageData) {
 					<div class="page-card-body space-y-4">
 						<div>
 							<h1 class="text-xl font-bold">Stock Imports</h1>
-							<p class="text-sm text-base-content/60 mt-1">Upload a CSV file to import stock data and manage imported records</p>
+							<p class="text-sm text-base-content/60 mt-1">Project: { data.ProjectName } ({ data.ClientName })</p>
 						</div>
+						if !canModifyStock(data.ProjectStatus) {
+							<div role="alert" class="alert alert-warning alert-soft">
+								<span>This project is inactive. Stock records are view-only.</span>
+							</div>
+						}
 						if data.Message != "" {
 							<div role="alert" class="alert alert-info alert-soft">
 								<span>{ data.Message }</span>
@@ -31,9 +40,10 @@ templ StockImportPage(data PageData) {
 						<form method="post" action="/tasker/stock/import" enctype="multipart/form-data" class="space-y-4">
 							<fieldset class="fieldset w-full">
 								<legend class="fieldset-legend text-base font-medium">CSV file</legend>
-								<input class="file-input file-input-bordered file-input-lg w-full" type="file" name="file" accept=".csv"/>
-							</fieldset>
-							<button class="btn btn-primary btn-lg w-full" type="submit">
+								<p class="text-xs text-base-content/70">Required header row: <span class="font-mono">sku,description</span></p>
+									<input class="file-input file-input-bordered file-input-lg w-full" type="file" name="file" accept=".csv" disabled?={ !canModifyStock(data.ProjectStatus) }/>
+								</fieldset>
+								<button class="btn btn-primary btn-lg w-full" type="submit" disabled?={ !canModifyStock(data.ProjectStatus) }>
 								<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="size-5">
 									<path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5"/>
 								</svg>
@@ -60,7 +70,7 @@ templ StockImportPage(data PageData) {
 										<input id="select-all-stock" class="checkbox checkbox-sm" type="checkbox"/>
 										<span class="label-text">Select all</span>
 									</label>
-									<button class="btn btn-error btn-soft btn-sm" type="submit" onclick="return confirm('Delete selected stock records?')">Delete Selected</button>
+									<button class="btn btn-error btn-soft btn-sm" type="submit" onclick="return confirm('Delete selected stock records?')" disabled?={ !canModifyStock(data.ProjectStatus) }>Delete Selected</button>
 								</div>
 								<div class="overflow-x-auto">
 									<table class="table table-zebra">
@@ -90,6 +100,7 @@ templ StockImportPage(data PageData) {
 															type="submit"
 															formaction={ fmt.Sprintf("/tasker/stock/delete/%d", record.ID) }
 															formmethod="post"
+															disabled?={ !canModifyStock(data.ProjectStatus) }
 															onclick="return confirm('Delete this stock record?')">Delete</button>
 													</td>
 												</tr>

@@ -35,7 +35,11 @@ func LoadPageData(ctx context.Context, db *sqlite.DB, palletID int64) (PageData,
 	photoIDsByReceipt := make(map[int64][]int64)
 
 	err := db.WithReadTx(ctx, func(ctx context.Context, tx bun.Tx) error {
-		if err := tx.NewRaw(`SELECT status FROM pallets WHERE id = ?`, palletID).Scan(ctx, &data.PalletStatus); err != nil {
+		if err := tx.NewRaw(`
+SELECT p.status, p.project_id, pj.status, pj.name, pj.client_name
+FROM pallets p
+JOIN projects pj ON pj.id = p.project_id
+WHERE p.id = ?`, palletID).Scan(ctx, &data.PalletStatus, &data.ProjectID, &data.ProjectStatus, &data.ProjectName, &data.ClientName); err != nil {
 			return err
 		}
 		if err := tx.NewRaw(`
@@ -48,7 +52,8 @@ SELECT pr.id, si.sku, si.description, pr.qty, pr.damaged, pr.damaged_qty, COALES
 FROM pallet_receipts pr
 JOIN stock_items si ON si.id = pr.stock_item_id
 WHERE pr.pallet_id = ?
-ORDER BY pr.id DESC`, palletID).Scan(ctx, &lines); err != nil {
+  AND pr.project_id = ?
+ORDER BY pr.id DESC`, palletID, data.ProjectID).Scan(ctx, &lines); err != nil {
 			return err
 		}
 
@@ -110,7 +115,7 @@ ORDER BY pr.id DESC`, palletID).Scan(ctx, &lines); err != nil {
 	return data, nil
 }
 
-func SearchStock(ctx context.Context, db *sqlite.DB, q string) ([]models.StockItem, error) {
+func SearchStock(ctx context.Context, db *sqlite.DB, projectID int64, q string) ([]models.StockItem, error) {
 	q = strings.TrimSpace(q)
 	if q == "" {
 		return []models.StockItem{}, nil
@@ -119,7 +124,8 @@ func SearchStock(ctx context.Context, db *sqlite.DB, q string) ([]models.StockIt
 	err := db.WithReadTx(ctx, func(ctx context.Context, tx bun.Tx) error {
 		return tx.NewSelect().
 			Model(&items).
-			Where("sku LIKE ? OR description LIKE ?", "%"+q+"%", "%"+q+"%").
+			Where("project_id = ?", projectID).
+			Where("(sku LIKE ? OR description LIKE ?)", "%"+q+"%", "%"+q+"%").
 			OrderExpr("sku ASC").
 			Limit(20).
 			Scan(ctx)
@@ -127,12 +133,15 @@ func SearchStock(ctx context.Context, db *sqlite.DB, q string) ([]models.StockIt
 	return items, err
 }
 
-func LoadPalletStatus(ctx context.Context, db *sqlite.DB, palletID int64) (string, error) {
-	var status string
-	err := db.WithReadTx(ctx, func(ctx context.Context, tx bun.Tx) error {
-		return tx.NewRaw(`SELECT status FROM pallets WHERE id = ?`, palletID).Scan(ctx, &status)
+func LoadPalletContext(ctx context.Context, db *sqlite.DB, palletID int64) (palletStatus string, projectID int64, projectStatus string, err error) {
+	err = db.WithReadTx(ctx, func(ctx context.Context, tx bun.Tx) error {
+		return tx.NewRaw(`
+SELECT p.status, p.project_id, pj.status
+FROM pallets p
+JOIN projects pj ON pj.id = p.project_id
+WHERE p.id = ?`, palletID).Scan(ctx, &palletStatus, &projectID, &projectStatus)
 	})
-	return status, err
+	return palletStatus, projectID, projectStatus, err
 }
 
 func SaveReceipt(ctx context.Context, db *sqlite.DB, auditSvc *audit.Service, userID int64, input ReceiptInput) error {
@@ -142,20 +151,29 @@ func SaveReceipt(ctx context.Context, db *sqlite.DB, auditSvc *audit.Service, us
 
 	return db.WithWriteTx(ctx, func(ctx context.Context, tx bun.Tx) error {
 		var palletStatus string
-		if err := tx.NewRaw(`SELECT status FROM pallets WHERE id = ?`, input.PalletID).Scan(ctx, &palletStatus); err != nil {
+		var projectID int64
+		var projectStatus string
+		if err := tx.NewRaw(`
+SELECT p.status, p.project_id, pj.status
+FROM pallets p
+JOIN projects pj ON pj.id = p.project_id
+WHERE p.id = ?`, input.PalletID).Scan(ctx, &palletStatus, &projectID, &projectStatus); err != nil {
 			return err
+		}
+		if projectStatus != "active" {
+			return fmt.Errorf("inactive projects are read-only")
 		}
 		if palletStatus != "created" && palletStatus != "open" && palletStatus != "closed" {
 			return fmt.Errorf("invalid pallet status: %s", palletStatus)
 		}
 
 		var stock models.StockItem
-		err := tx.NewSelect().Model(&stock).Where("sku = ?", input.SKU).Limit(1).Scan(ctx)
+		err := tx.NewSelect().Model(&stock).Where("project_id = ?", projectID).Where("sku = ?", input.SKU).Limit(1).Scan(ctx)
 		if err != nil {
 			if !errors.Is(err, sql.ErrNoRows) {
 				return err
 			}
-			stock = models.StockItem{SKU: input.SKU, Description: input.Description}
+			stock = models.StockItem{ProjectID: projectID, SKU: input.SKU, Description: input.Description}
 			if _, err := tx.NewInsert().Model(&stock).Exec(ctx); err != nil {
 				return err
 			}
@@ -163,6 +181,7 @@ func SaveReceipt(ctx context.Context, db *sqlite.DB, auditSvc *audit.Service, us
 
 		var existing models.PalletReceipt
 		err = tx.NewSelect().Model(&existing).
+			Where("project_id = ?", projectID).
 			Where("pallet_id = ?", input.PalletID).
 			Where("stock_item_id = ?", stock.ID).
 			Where("COALESCE(batch_number, '') = COALESCE(?, '')", input.BatchNumber).
@@ -199,13 +218,14 @@ func SaveReceipt(ctx context.Context, db *sqlite.DB, auditSvc *audit.Service, us
 			if err := insertReceiptPhotos(ctx, tx, existing.ID, input.Photos); err != nil {
 				return err
 			}
-			if err := promotePalletToOpenIfCreated(ctx, tx, input.PalletID); err != nil {
+			if err := promotePalletToOpenIfCreated(ctx, tx, projectID, input.PalletID); err != nil {
 				return err
 			}
 			return nil
 		}
 
 		receipt := models.PalletReceipt{
+			ProjectID:       projectID,
 			PalletID:        input.PalletID,
 			StockItemID:     stock.ID,
 			ScannedByUserID: userID,
@@ -236,15 +256,15 @@ func SaveReceipt(ctx context.Context, db *sqlite.DB, auditSvc *audit.Service, us
 		if err := insertReceiptPhotos(ctx, tx, receipt.ID, input.Photos); err != nil {
 			return err
 		}
-		if err := promotePalletToOpenIfCreated(ctx, tx, input.PalletID); err != nil {
+		if err := promotePalletToOpenIfCreated(ctx, tx, projectID, input.PalletID); err != nil {
 			return err
 		}
 		return nil
 	})
 }
 
-func promotePalletToOpenIfCreated(ctx context.Context, tx bun.Tx, palletID int64) error {
-	_, err := tx.NewRaw(`UPDATE pallets SET status = 'open', reopened_at = NULL WHERE id = ? AND status = 'created'`, palletID).Exec(ctx)
+func promotePalletToOpenIfCreated(ctx context.Context, tx bun.Tx, projectID, palletID int64) error {
+	_, err := tx.NewRaw(`UPDATE pallets SET status = 'open', reopened_at = NULL WHERE id = ? AND project_id = ? AND status = 'created'`, palletID, projectID).Exec(ctx)
 	return err
 }
 

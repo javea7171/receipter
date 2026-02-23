@@ -15,18 +15,27 @@ import (
 // ProgressPageQueryHandler renders pallet progress dashboard.
 func ProgressPageQueryHandler(db *sqlite.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		summary, err := LoadSummary(r.Context(), db, r.URL.Query().Get("status"))
+		session, ok := sessioncontext.GetSessionFromContext(r.Context())
+		if !ok || session.ActiveProjectID == nil || *session.ActiveProjectID <= 0 {
+			if ok && hasRole(session.UserRoles, rbac.RoleAdmin) {
+				http.Redirect(w, r, "/tasker/projects", http.StatusSeeOther)
+				return
+			}
+			http.Error(w, "no active project selected", http.StatusForbidden)
+			return
+		}
+
+		summary, err := LoadSummary(r.Context(), db, *session.ActiveProjectID, r.URL.Query().Get("status"))
 		if err != nil {
 			http.Error(w, "failed to load pallet progress", http.StatusInternalServerError)
 			return
 		}
-		if session, ok := sessioncontext.GetSessionFromContext(r.Context()); ok {
-			isAdmin := hasRole(session.UserRoles, rbac.RoleAdmin)
-			summary.CanViewContent = isAdmin || hasRole(session.UserRoles, rbac.RoleScanner)
-			summary.CanCreatePallet = isAdmin
-			summary.CanOpenReceipt = isAdmin
-			summary.CanManageLifecycle = isAdmin
-		}
+		isAdmin := hasRole(session.UserRoles, rbac.RoleAdmin)
+		summary.IsAdmin = isAdmin
+		summary.CanViewContent = isAdmin || hasRole(session.UserRoles, rbac.RoleScanner)
+		summary.CanCreatePallet = isAdmin && summary.ProjectStatus == "active"
+		summary.CanOpenReceipt = isAdmin
+		summary.CanManageLifecycle = isAdmin && summary.ProjectStatus == "active"
 
 		if r.URL.Query().Get("fragment") == "1" {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -62,7 +71,11 @@ func ClosePalletCommandHandler(db *sqlite.DB, auditSvc *audit.Service) http.Hand
 			return
 		}
 		session, _ := sessioncontext.GetSessionFromContext(r.Context())
-		if err := updatePalletStatus(r.Context(), db, auditSvc, session.UserID, palletID, "closed"); err != nil {
+		if session.ActiveProjectID == nil || *session.ActiveProjectID <= 0 {
+			http.Error(w, "no active project selected", http.StatusForbidden)
+			return
+		}
+		if err := updatePalletStatus(r.Context(), db, auditSvc, session.UserID, *session.ActiveProjectID, palletID, "closed"); err != nil {
 			http.Error(w, "failed to close pallet", http.StatusInternalServerError)
 			return
 		}
@@ -78,7 +91,11 @@ func ReopenPalletCommandHandler(db *sqlite.DB, auditSvc *audit.Service) http.Han
 			return
 		}
 		session, _ := sessioncontext.GetSessionFromContext(r.Context())
-		if err := updatePalletStatus(r.Context(), db, auditSvc, session.UserID, palletID, "open"); err != nil {
+		if session.ActiveProjectID == nil || *session.ActiveProjectID <= 0 {
+			http.Error(w, "no active project selected", http.StatusForbidden)
+			return
+		}
+		if err := updatePalletStatus(r.Context(), db, auditSvc, session.UserID, *session.ActiveProjectID, palletID, "open"); err != nil {
 			http.Error(w, "failed to reopen pallet", http.StatusInternalServerError)
 			return
 		}

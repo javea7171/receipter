@@ -13,7 +13,7 @@ import (
 	"github.com/jung-kurt/gofpdf"
 )
 
-func renderPalletLabelPDF(palletID int64, printedAt time.Time) ([]byte, string, error) {
+func renderPalletLabelPDF(palletID int64, clientName string, printedAt time.Time) ([]byte, string, error) {
 	barcodeValue := fmt.Sprintf("P%08d", palletID)
 	code, err := code128.Encode(barcodeValue)
 	if err != nil {
@@ -38,6 +38,10 @@ func renderPalletLabelPDF(palletID int64, printedAt time.Time) ([]byte, string, 
 	pdf.SetFont("Helvetica", "B", 52)
 	pdf.CellFormat(0, 26, fmt.Sprintf("PALLET %d", palletID), "", 1, "C", false, 0, "")
 	pdf.SetFont("Helvetica", "", 20)
+	if clientName == "" {
+		clientName = "Unknown Client"
+	}
+	pdf.CellFormat(0, 11, "Client: "+clientName, "", 1, "C", false, 0, "")
 	pdf.CellFormat(0, 11, "Printed: "+printedAt.Format("02/01/2006"), "", 1, "C", false, 0, "")
 
 	opt := gofpdf.ImageOptions{ImageType: "PNG", ReadDpi: false}

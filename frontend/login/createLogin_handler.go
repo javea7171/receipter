@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"receipter/infrastructure/cache"
+	projectinfra "receipter/infrastructure/project"
 	sessioncookie "receipter/infrastructure/session"
 	"receipter/infrastructure/sqlite"
 	"receipter/models"
@@ -37,7 +38,13 @@ func CreateLoginHandler(db *sqlite.DB, sessionCache *cache.UserSessionCache, use
 			return
 		}
 
-		session := newSession(user)
+		activeProjectID, err := projectinfra.ResolveSessionActiveProjectID(r.Context(), db, nil)
+		if err != nil {
+			http.Redirect(w, r, "/login?error="+url.QueryEscape("failed to resolve active project"), http.StatusSeeOther)
+			return
+		}
+
+		session := newSession(user, activeProjectID)
 		if err := persistSession(r.Context(), db, session); err != nil {
 			http.Redirect(w, r, "/login?error="+url.QueryEscape("failed to create session"), http.StatusSeeOther)
 			return
@@ -47,16 +54,17 @@ func CreateLoginHandler(db *sqlite.DB, sessionCache *cache.UserSessionCache, use
 		userCache.Add(user.Username, user)
 
 		http.SetCookie(w, sessioncookie.SessionCookie(session.ID, 12*60*60))
-		http.Redirect(w, r, "/tasker/pallets/progress", http.StatusSeeOther)
+		http.Redirect(w, r, "/tasker/projects", http.StatusSeeOther)
 	}
 }
 
-func newSession(user models.User) models.Session {
+func newSession(user models.User, activeProjectID *int64) models.Session {
 	return models.Session{
-		ID:        newSessionToken(),
-		UserID:    user.ID,
-		User:      user,
-		UserRoles: []string{user.Role},
-		ExpiresAt: sessioncookie.DefaultExpiry(),
+		ID:              newSessionToken(),
+		UserID:          user.ID,
+		ActiveProjectID: activeProjectID,
+		User:            user,
+		UserRoles:       []string{user.Role},
+		ExpiresAt:       sessioncookie.DefaultExpiry(),
 	}
 }

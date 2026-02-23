@@ -30,6 +30,16 @@ func openProgressTestDB(t *testing.T) *sqlite.DB {
 	if err := sqlite.ApplyMigrations(context.Background(), db, migrationsDir); err != nil {
 		t.Fatalf("apply migrations: %v", err)
 	}
+	err = db.WithWriteTx(context.Background(), func(ctx context.Context, tx bun.Tx) error {
+		_, err := tx.ExecContext(ctx, `
+INSERT INTO projects (id, name, description, project_date, client_name, code, status, created_at, updated_at)
+VALUES (1, 'Progress Test', 'Progress test project', DATE('now'), 'Test Client', 'progress-test', 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+`)
+		return err
+	})
+	if err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
 	return db
 }
 
@@ -39,7 +49,7 @@ func seedLifecycleData(t *testing.T, db *sqlite.DB) {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO users (id, username, password_hash, role, created_at, updated_at) VALUES (1, 'admin', 'hash', 'admin', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`); err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO pallets (id, status, created_at) VALUES (1, 'open', CURRENT_TIMESTAMP)`); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO pallets (id, project_id, status, created_at) VALUES (1, 1, 'open', CURRENT_TIMESTAMP)`); err != nil {
 			return err
 		}
 		return nil
@@ -54,11 +64,11 @@ func TestUpdatePalletStatus_CloseAndReopenWritesAudit(t *testing.T) {
 	seedLifecycleData(t, db)
 	auditSvc := audit.NewService()
 
-	if err := updatePalletStatus(context.Background(), db, auditSvc, 1, 1, "closed"); err != nil {
+	if err := updatePalletStatus(context.Background(), db, auditSvc, 1, 1, 1, "closed"); err != nil {
 		t.Fatalf("close pallet: %v", err)
 	}
 
-	if err := updatePalletStatus(context.Background(), db, auditSvc, 1, 1, "open"); err != nil {
+	if err := updatePalletStatus(context.Background(), db, auditSvc, 1, 1, 1, "open"); err != nil {
 		t.Fatalf("reopen pallet: %v", err)
 	}
 
@@ -88,13 +98,13 @@ func TestLoadSummary_StatusFilterAndCounts(t *testing.T) {
 	db := openProgressTestDB(t)
 
 	err := db.WithWriteTx(context.Background(), func(ctx context.Context, tx bun.Tx) error {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO pallets (id, status, created_at) VALUES (1, 'created', CURRENT_TIMESTAMP)`); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO pallets (id, project_id, status, created_at) VALUES (1, 1, 'created', CURRENT_TIMESTAMP)`); err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO pallets (id, status, created_at) VALUES (2, 'open', CURRENT_TIMESTAMP)`); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO pallets (id, project_id, status, created_at) VALUES (2, 1, 'open', CURRENT_TIMESTAMP)`); err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO pallets (id, status, created_at) VALUES (3, 'closed', CURRENT_TIMESTAMP)`); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO pallets (id, project_id, status, created_at) VALUES (3, 1, 'closed', CURRENT_TIMESTAMP)`); err != nil {
 			return err
 		}
 		return nil
@@ -103,7 +113,7 @@ func TestLoadSummary_StatusFilterAndCounts(t *testing.T) {
 		t.Fatalf("seed pallets: %v", err)
 	}
 
-	summary, err := LoadSummary(context.Background(), db, "open")
+	summary, err := LoadSummary(context.Background(), db, 1, "open")
 	if err != nil {
 		t.Fatalf("load summary: %v", err)
 	}
@@ -125,13 +135,13 @@ func TestUpdatePalletStatus_InvalidTransitions(t *testing.T) {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO users (id, username, password_hash, role, created_at, updated_at) VALUES (1, 'admin', 'hash', 'admin', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`); err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO pallets (id, status, created_at) VALUES (1, 'created', CURRENT_TIMESTAMP)`); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO pallets (id, project_id, status, created_at) VALUES (1, 1, 'created', CURRENT_TIMESTAMP)`); err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO pallets (id, status, created_at) VALUES (2, 'open', CURRENT_TIMESTAMP)`); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO pallets (id, project_id, status, created_at) VALUES (2, 1, 'open', CURRENT_TIMESTAMP)`); err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO pallets (id, status, created_at) VALUES (3, 'closed', CURRENT_TIMESTAMP)`); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO pallets (id, project_id, status, created_at) VALUES (3, 1, 'closed', CURRENT_TIMESTAMP)`); err != nil {
 			return err
 		}
 		return nil
@@ -154,7 +164,7 @@ func TestUpdatePalletStatus_InvalidTransitions(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := updatePalletStatus(context.Background(), db, nil, 1, tc.palletID, tc.toStatus)
+			err := updatePalletStatus(context.Background(), db, nil, 1, 1, tc.palletID, tc.toStatus)
 			if err == nil {
 				t.Fatalf("expected transition error")
 			}

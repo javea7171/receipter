@@ -37,6 +37,16 @@ func openTestDB(t *testing.T) *sqlite.DB {
 	if err := sqlite.ApplyMigrations(context.Background(), db, migrationsDir); err != nil {
 		t.Fatalf("apply migrations: %v", err)
 	}
+	err = db.WithWriteTx(context.Background(), func(ctx context.Context, tx bun.Tx) error {
+		_, err := tx.ExecContext(ctx, `
+INSERT INTO projects (id, name, description, project_date, client_name, code, status, created_at, updated_at)
+VALUES (1, 'Receipt Test', 'Receipt test project', DATE('now'), 'Test Client', 'receipt-test', 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+`)
+		return err
+	})
+	if err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
 	return db
 }
 
@@ -51,7 +61,7 @@ func seedPalletWithStatus(t *testing.T, db *sqlite.DB, palletID int64, status st
 		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO users (id, username, password_hash, role, created_at, updated_at) VALUES (1, 'scanner-test', 'hash', 'scanner', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`); err != nil {
 			return err
 		}
-		_, err := tx.ExecContext(ctx, `INSERT INTO pallets (id, status, created_at) VALUES (?, ?, CURRENT_TIMESTAMP)`, palletID, status)
+		_, err := tx.ExecContext(ctx, `INSERT INTO pallets (id, project_id, status, created_at) VALUES (?, 1, ?, CURRENT_TIMESTAMP)`, palletID, status)
 		return err
 	})
 	if err != nil {

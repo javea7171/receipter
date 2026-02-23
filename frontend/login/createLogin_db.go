@@ -53,9 +53,10 @@ func persistSession(ctx context.Context, db *sqlite.DB, session models.Session) 
 	return db.WithWriteTx(ctx, func(ctx context.Context, tx bun.Tx) error {
 		// Keep one active session row per token; token is unique ID.
 		_, err := tx.NewInsert().Model(&models.Session{
-			ID:        session.ID,
-			UserID:    session.UserID,
-			ExpiresAt: session.ExpiresAt,
+			ID:              session.ID,
+			UserID:          session.UserID,
+			ActiveProjectID: session.ActiveProjectID,
+			ExpiresAt:       session.ExpiresAt,
 		}).Exec(ctx)
 		return err
 	})

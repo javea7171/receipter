@@ -32,6 +32,12 @@ func openStockTestDB(t *testing.T) *sqlite.DB {
 
 	// required for stock_import_runs FK(user_id)
 	err = db.WithWriteTx(context.Background(), func(ctx context.Context, tx bun.Tx) error {
+		if _, err := tx.ExecContext(ctx, `
+INSERT INTO projects (id, name, description, project_date, client_name, code, status, created_at, updated_at)
+VALUES (1, 'Stock Test', 'Stock import test project', DATE('now'), 'Test Client', 'stock-test', 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+`); err != nil {
+			return err
+		}
 		_, err := tx.ExecContext(ctx, `INSERT INTO users (id, username, password_hash, role, created_at, updated_at) VALUES (1, 'admin', 'hash', 'admin', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`)
 		return err
 	})
@@ -44,7 +50,7 @@ func openStockTestDB(t *testing.T) *sqlite.DB {
 func TestImportCSV_InvalidHeader(t *testing.T) {
 	db := openStockTestDB(t)
 
-	_, err := ImportCSV(context.Background(), db, nil, 1, strings.NewReader("code,description\nA,Alpha\n"))
+	_, err := ImportCSV(context.Background(), db, nil, 1, 1, strings.NewReader("code,description\nA,Alpha\n"))
 	if err == nil {
 		t.Fatalf("expected invalid header error")
 	}
@@ -56,7 +62,7 @@ func TestImportCSV_InvalidHeader(t *testing.T) {
 func TestImportCSV_HappyPathAndUpdatePath(t *testing.T) {
 	db := openStockTestDB(t)
 
-	summary, err := ImportCSV(context.Background(), db, nil, 1, strings.NewReader("sku,description\nA,Alpha\nB,Beta\n"))
+	summary, err := ImportCSV(context.Background(), db, nil, 1, 1, strings.NewReader("sku,description\nA,Alpha\nB,Beta\n"))
 	if err != nil {
 		t.Fatalf("import csv 1: %v", err)
 	}
@@ -64,7 +70,7 @@ func TestImportCSV_HappyPathAndUpdatePath(t *testing.T) {
 		t.Fatalf("unexpected summary1: %+v", summary)
 	}
 
-	summary, err = ImportCSV(context.Background(), db, nil, 1, strings.NewReader("sku,description\nA,Alpha2\nC,Gamma\n,Missing\n"))
+	summary, err = ImportCSV(context.Background(), db, nil, 1, 1, strings.NewReader("sku,description\nA,Alpha2\nC,Gamma\n,Missing\n"))
 	if err != nil {
 		t.Fatalf("import csv 2: %v", err)
 	}
@@ -96,12 +102,12 @@ func TestImportCSV_HappyPathAndUpdatePath(t *testing.T) {
 
 func TestListStockRecords_ReturnsSortedRows(t *testing.T) {
 	db := openStockTestDB(t)
-	_, err := ImportCSV(context.Background(), db, nil, 1, strings.NewReader("sku,description\nz-last,Zeta\nA-first,Alpha\n"))
+	_, err := ImportCSV(context.Background(), db, nil, 1, 1, strings.NewReader("sku,description\nz-last,Zeta\nA-first,Alpha\n"))
 	if err != nil {
 		t.Fatalf("import csv: %v", err)
 	}
 
-	rows, err := ListStockRecords(context.Background(), db)
+	rows, err := ListStockRecords(context.Background(), db, 1)
 	if err != nil {
 		t.Fatalf("list stock records: %v", err)
 	}
@@ -115,7 +121,7 @@ func TestListStockRecords_ReturnsSortedRows(t *testing.T) {
 
 func TestDeleteStockItems_DeletesMissingAndInUse(t *testing.T) {
 	db := openStockTestDB(t)
-	_, err := ImportCSV(context.Background(), db, nil, 1, strings.NewReader("sku,description\nKEEP,Keep\nDEL,Delete\n"))
+	_, err := ImportCSV(context.Background(), db, nil, 1, 1, strings.NewReader("sku,description\nKEEP,Keep\nDEL,Delete\n"))
 	if err != nil {
 		t.Fatalf("import csv: %v", err)
 	}
@@ -136,20 +142,20 @@ func TestDeleteStockItems_DeletesMissingAndInUse(t *testing.T) {
 	}
 
 	err = db.WithWriteTx(context.Background(), func(ctx context.Context, tx bun.Tx) error {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO pallets (id, status, created_at) VALUES (1, 'open', CURRENT_TIMESTAMP)`); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO pallets (id, project_id, status, created_at) VALUES (1, 1, 'open', CURRENT_TIMESTAMP)`); err != nil {
 			return err
 		}
 		_, err := tx.ExecContext(ctx, `
 INSERT INTO pallet_receipts (
-	pallet_id, stock_item_id, scanned_by_user_id, qty, damaged, damaged_qty, batch_number, expiry_date, created_at, updated_at
-) VALUES (?, ?, 1, 1, 0, 0, 'BATCH', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`, 1, keepID)
+	project_id, pallet_id, stock_item_id, scanned_by_user_id, qty, damaged, damaged_qty, batch_number, expiry_date, created_at, updated_at
+) VALUES (1, 1, ?, 1, 1, 0, 0, 'BATCH', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`, keepID)
 		return err
 	})
 	if err != nil {
 		t.Fatalf("seed receipt reference: %v", err)
 	}
 
-	deleted, failed, err := DeleteStockItems(context.Background(), db, nil, 1, []int64{delID, keepID, 999999})
+	deleted, failed, err := DeleteStockItems(context.Background(), db, nil, 1, 1, []int64{delID, keepID, 999999})
 	if err != nil {
 		t.Fatalf("delete stock items: %v", err)
 	}

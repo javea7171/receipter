@@ -8,7 +8,7 @@ import (
 func TestRenderPalletLabelPDF_GeneratesPDF(t *testing.T) {
 	t.Parallel()
 
-	pdf, code, err := renderPalletLabelPDF(1, time.Date(2026, 2, 20, 0, 0, 0, 0, time.UTC))
+	pdf, code, err := renderPalletLabelPDF(1, "Boba Formosa", time.Date(2026, 2, 20, 0, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatalf("renderPalletLabelPDF returned error: %v", err)
 	}

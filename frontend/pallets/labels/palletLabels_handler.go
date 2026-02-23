@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -12,6 +13,7 @@ import (
 
 	sessioncontext "receipter/frontend/shared/context"
 	"receipter/infrastructure/audit"
+	projectinfra "receipter/infrastructure/project"
 	"receipter/infrastructure/rbac"
 	"receipter/infrastructure/sqlite"
 )
@@ -19,7 +21,23 @@ import (
 // NewPalletCommandHandler creates a new pallet and redirects to its label page.
 func NewPalletCommandHandler(db *sqlite.DB, _ *audit.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		pallet, err := CreateNextPallet(r.Context(), db)
+		session, ok := sessioncontext.GetSessionFromContext(r.Context())
+		if !ok || session.ActiveProjectID == nil || *session.ActiveProjectID <= 0 {
+			http.Redirect(w, r, "/tasker/projects?status="+url.QueryEscape("No active project selected"), http.StatusSeeOther)
+			return
+		}
+
+		isActive, err := projectinfra.IsActiveByID(r.Context(), db, *session.ActiveProjectID)
+		if err != nil {
+			http.Error(w, "failed to load project", http.StatusInternalServerError)
+			return
+		}
+		if !isActive {
+			http.Redirect(w, r, "/tasker/projects?status="+url.QueryEscape("Inactive projects are read-only"), http.StatusSeeOther)
+			return
+		}
+
+		pallet, err := CreateNextPallet(r.Context(), db, *session.ActiveProjectID)
 		if err != nil {
 			http.Error(w, "failed to create pallet", http.StatusInternalServerError)
 			return
@@ -44,8 +62,14 @@ func PalletLabelPageQueryHandler(db *sqlite.DB) http.HandlerFunc {
 			return
 		}
 
+		project, err := projectinfra.LoadByID(r.Context(), db, pallet.ProjectID)
+		if err != nil {
+			http.Error(w, "project not found", http.StatusNotFound)
+			return
+		}
+
 		printedAt := time.Now()
-		pdfBytes, _, err := renderPalletLabelPDF(pallet.ID, printedAt)
+		pdfBytes, _, err := renderPalletLabelPDF(pallet.ID, project.ClientName, printedAt)
 		if err != nil {
 			http.Error(w, "failed to build label pdf", http.StatusInternalServerError)
 			return

@@ -18,8 +18,8 @@ func nextPalletID(ctx context.Context, tx bun.Tx) (int64, error) {
 	return id, nil
 }
 
-func insertPallet(ctx context.Context, tx bun.Tx, id int64) (models.Pallet, error) {
-	pallet := models.Pallet{ID: id, Status: "created"}
+func insertPallet(ctx context.Context, tx bun.Tx, id, projectID int64) (models.Pallet, error) {
+	pallet := models.Pallet{ID: id, ProjectID: projectID, Status: "created"}
 	_, err := tx.NewInsert().Model(&pallet).Exec(ctx)
 	return pallet, err
 }
@@ -30,14 +30,14 @@ func loadPalletByID(ctx context.Context, tx bun.Tx, id int64) (models.Pallet, er
 	return pallet, err
 }
 
-func CreateNextPallet(ctx context.Context, db *sqlite.DB) (models.Pallet, error) {
+func CreateNextPallet(ctx context.Context, db *sqlite.DB, projectID int64) (models.Pallet, error) {
 	var pallet models.Pallet
 	err := db.WithWriteTx(ctx, func(ctx context.Context, tx bun.Tx) error {
 		id, err := nextPalletID(ctx, tx)
 		if err != nil {
 			return err
 		}
-		pallet, err = insertPallet(ctx, tx, id)
+		pallet, err = insertPallet(ctx, tx, id, projectID)
 		return err
 	})
 	return pallet, err

@@ -46,9 +46,13 @@ func ReceiptPageQueryHandler(db *sqlite.DB, _ *cache.UserSessionCache) http.Hand
 				break
 			}
 		}
-		data.CanEdit = CanUserReceiptPallet(data.PalletStatus, session.UserRoles)
+		data.CanEdit = CanUserReceiptPallet(data.ProjectStatus, data.PalletStatus, session.UserRoles)
 		if !data.CanEdit {
-			data.Message = "Pallet is closed. Only admins can add or edit receipt lines."
+			if data.ProjectStatus != "active" {
+				data.Message = "Project is inactive. This pallet is read-only."
+			} else {
+				data.Message = "Pallet is closed. Only admins can add or edit receipt lines."
+			}
 		}
 		if msg := strings.TrimSpace(r.URL.Query().Get("error")); msg != "" {
 			data.Message = msg
@@ -76,7 +80,7 @@ func CreateReceiptCommandHandler(db *sqlite.DB, auditSvc *audit.Service) http.Ha
 		}
 
 		session, _ := context.GetSessionFromContext(r.Context())
-		palletStatus, err := LoadPalletStatus(r.Context(), db, id)
+		palletStatus, _, projectStatus, err := LoadPalletContext(r.Context(), db, id)
 		if err != nil {
 			if err == sql.ErrNoRows {
 				http.Error(w, "pallet not found", http.StatusNotFound)
@@ -85,8 +89,12 @@ func CreateReceiptCommandHandler(db *sqlite.DB, auditSvc *audit.Service) http.Ha
 			http.Error(w, "failed to load pallet", http.StatusInternalServerError)
 			return
 		}
-		if !CanUserReceiptPallet(palletStatus, session.UserRoles) {
-			http.Redirect(w, r, "/tasker/pallets/"+strconv.FormatInt(id, 10)+"/receipt?error="+url.QueryEscape("closed pallets can only be edited by admins"), http.StatusSeeOther)
+		if !CanUserReceiptPallet(projectStatus, palletStatus, session.UserRoles) {
+			msg := "closed pallets can only be edited by admins"
+			if projectStatus != "active" {
+				msg = "inactive projects are read-only"
+			}
+			http.Redirect(w, r, "/tasker/pallets/"+strconv.FormatInt(id, 10)+"/receipt?error="+url.QueryEscape(msg), http.StatusSeeOther)
 			return
 		}
 
@@ -161,7 +169,10 @@ func CreateReceiptCommandHandler(db *sqlite.DB, auditSvc *audit.Service) http.Ha
 	}
 }
 
-func CanUserReceiptPallet(palletStatus string, userRoles []string) bool {
+func CanUserReceiptPallet(projectStatus, palletStatus string, userRoles []string) bool {
+	if projectStatus != "active" {
+		return false
+	}
 	if palletStatus == "created" || palletStatus == "open" {
 		return true
 	}
@@ -179,8 +190,14 @@ func CanUserReceiptPallet(palletStatus string, userRoles []string) bool {
 // SearchStockQueryHandler returns matching stock codes.
 func SearchStockQueryHandler(db *sqlite.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		session, ok := context.GetSessionFromContext(r.Context())
+		if !ok || session.ActiveProjectID == nil || *session.ActiveProjectID <= 0 {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode([]any{})
+			return
+		}
 		q := r.URL.Query().Get("q")
-		items, err := SearchStock(r.Context(), db, q)
+		items, err := SearchStock(r.Context(), db, *session.ActiveProjectID, q)
 		if err != nil {
 			http.Error(w, "failed to search stock", http.StatusInternalServerError)
 			return

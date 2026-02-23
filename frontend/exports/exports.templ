@@ -2,7 +2,7 @@ package exports
 
 import sharedhtml "receipter/frontend/shared/html"
 
-templ ExportsPage() {
+templ ExportsPage(data PageData) {
 	<!doctype html>
 	<html data-theme="light">
 		<head>
@@ -23,7 +23,10 @@ templ ExportsPage() {
 								</svg>
 							</div>
 							<h1 class="text-xl font-bold">Exports</h1>
-							<p class="text-sm text-base-content/60 mt-1">Download data as CSV files</p>
+							<p class="text-sm text-base-content/60 mt-1">Project: { data.ProjectName } ({ data.ClientName })</p>
+							if data.ProjectStatus != "active" {
+								<p class="text-xs text-warning mt-1">Inactive project. Exports remain available in read-only mode.</p>
+							}
 						</div>
 						<div class="grid gap-3">
 							<a class="btn btn-outline btn-lg justify-start gap-3" href="/tasker/exports/receipts.csv">

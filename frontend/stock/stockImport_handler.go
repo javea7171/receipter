@@ -9,26 +9,43 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"receipter/frontend/shared/context"
+	sessioncontext "receipter/frontend/shared/context"
 	"receipter/infrastructure/audit"
+	projectinfra "receipter/infrastructure/project"
 	"receipter/infrastructure/sqlite"
 )
 
 func StockImportPageQueryHandler(db *sqlite.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		projectID, ok := activeProjectIDFromSession(r)
+		if !ok {
+			http.Redirect(w, r, "/tasker/projects?status="+url.QueryEscape("Select a project first"), http.StatusSeeOther)
+			return
+		}
+
+		project, err := projectinfra.LoadByID(r.Context(), db, projectID)
+		if err != nil {
+			http.Redirect(w, r, "/tasker/projects?status="+url.QueryEscape("Active project not found"), http.StatusSeeOther)
+			return
+		}
+
 		message := r.URL.Query().Get("status")
 		if message == "" {
 			message = "Upload CSV with header: sku,description"
 		}
-		rows, err := ListStockRecords(r.Context(), db)
+		rows, err := ListStockRecords(r.Context(), db, projectID)
 		if err != nil {
 			http.Error(w, "failed to load stock records", http.StatusInternalServerError)
 			return
 		}
 
 		data := PageData{
-			Message: message,
-			Records: rows,
+			ProjectID:     project.ID,
+			ProjectName:   project.Name,
+			ClientName:    project.ClientName,
+			ProjectStatus: project.Status,
+			Message:       message,
+			Records:       rows,
 		}
 
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -41,21 +58,36 @@ func StockImportPageQueryHandler(db *sqlite.DB) http.HandlerFunc {
 
 func StockImportCommandHandler(db *sqlite.DB, auditSvc *audit.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		session, _ := context.GetSessionFromContext(r.Context())
+		projectID, ok := activeProjectIDFromSession(r)
+		if !ok {
+			http.Redirect(w, r, "/tasker/projects?status="+url.QueryEscape("Select a project first"), http.StatusSeeOther)
+			return
+		}
+		isActive, err := projectinfra.IsActiveByID(r.Context(), db, projectID)
+		if err != nil {
+			http.Redirect(w, r, "/tasker/stock/import?status="+url.QueryEscape("Failed to load project"), http.StatusSeeOther)
+			return
+		}
+		if !isActive {
+			http.Redirect(w, r, "/tasker/stock/import?status="+url.QueryEscape("Inactive projects are read-only"), http.StatusSeeOther)
+			return
+		}
+
+		session, _ := sessioncontext.GetSessionFromContext(r.Context())
 		if err := r.ParseMultipartForm(10 << 20); err != nil {
-			http.Error(w, "invalid upload", http.StatusBadRequest)
+			http.Redirect(w, r, "/tasker/stock/import?status="+url.QueryEscape("Error: invalid upload"), http.StatusSeeOther)
 			return
 		}
 		file, _, err := r.FormFile("file")
 		if err != nil {
-			http.Error(w, "file is required", http.StatusBadRequest)
+			http.Redirect(w, r, "/tasker/stock/import?status="+url.QueryEscape("Error: file is required"), http.StatusSeeOther)
 			return
 		}
 		defer file.Close()
 
-		summary, err := ImportCSV(r.Context(), db, auditSvc, session.UserID, file)
+		summary, err := ImportCSV(r.Context(), db, auditSvc, session.UserID, projectID, file)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			http.Redirect(w, r, "/tasker/stock/import?status="+url.QueryEscape("Error: "+err.Error()), http.StatusSeeOther)
 			return
 		}
 
@@ -66,14 +98,29 @@ func StockImportCommandHandler(db *sqlite.DB, auditSvc *audit.Service) http.Hand
 
 func StockDeleteItemCommandHandler(db *sqlite.DB, auditSvc *audit.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		projectID, ok := activeProjectIDFromSession(r)
+		if !ok {
+			http.Redirect(w, r, "/tasker/projects?status="+url.QueryEscape("Select a project first"), http.StatusSeeOther)
+			return
+		}
+		isActive, err := projectinfra.IsActiveByID(r.Context(), db, projectID)
+		if err != nil {
+			http.Redirect(w, r, "/tasker/stock/import?status="+url.QueryEscape("Failed to load project"), http.StatusSeeOther)
+			return
+		}
+		if !isActive {
+			http.Redirect(w, r, "/tasker/stock/import?status="+url.QueryEscape("Inactive projects are read-only"), http.StatusSeeOther)
+			return
+		}
+
 		id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 		if err != nil || id <= 0 {
 			http.Redirect(w, r, "/tasker/stock/import?status="+url.QueryEscape("Invalid stock item id"), http.StatusSeeOther)
 			return
 		}
 
-		session, _ := context.GetSessionFromContext(r.Context())
-		deleted, failed, err := DeleteStockItems(r.Context(), db, auditSvc, session.UserID, []int64{id})
+		session, _ := sessioncontext.GetSessionFromContext(r.Context())
+		deleted, failed, err := DeleteStockItems(r.Context(), db, auditSvc, session.UserID, projectID, []int64{id})
 		if err != nil {
 			http.Redirect(w, r, "/tasker/stock/import?status="+url.QueryEscape("Failed to delete stock record"), http.StatusSeeOther)
 			return
@@ -91,6 +138,21 @@ func StockDeleteItemCommandHandler(db *sqlite.DB, auditSvc *audit.Service) http.
 
 func StockDeleteItemsCommandHandler(db *sqlite.DB, auditSvc *audit.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		projectID, ok := activeProjectIDFromSession(r)
+		if !ok {
+			http.Redirect(w, r, "/tasker/projects?status="+url.QueryEscape("Select a project first"), http.StatusSeeOther)
+			return
+		}
+		isActive, err := projectinfra.IsActiveByID(r.Context(), db, projectID)
+		if err != nil {
+			http.Redirect(w, r, "/tasker/stock/import?status="+url.QueryEscape("Failed to load project"), http.StatusSeeOther)
+			return
+		}
+		if !isActive {
+			http.Redirect(w, r, "/tasker/stock/import?status="+url.QueryEscape("Inactive projects are read-only"), http.StatusSeeOther)
+			return
+		}
+
 		if err := r.ParseForm(); err != nil {
 			http.Redirect(w, r, "/tasker/stock/import?status="+url.QueryEscape("Invalid stock delete form"), http.StatusSeeOther)
 			return
@@ -101,8 +163,8 @@ func StockDeleteItemsCommandHandler(db *sqlite.DB, auditSvc *audit.Service) http
 			return
 		}
 
-		session, _ := context.GetSessionFromContext(r.Context())
-		deleted, failed, err := DeleteStockItems(r.Context(), db, auditSvc, session.UserID, ids)
+		session, _ := sessioncontext.GetSessionFromContext(r.Context())
+		deleted, failed, err := DeleteStockItems(r.Context(), db, auditSvc, session.UserID, projectID, ids)
 		if err != nil {
 			http.Redirect(w, r, "/tasker/stock/import?status="+url.QueryEscape("Failed to delete stock records"), http.StatusSeeOther)
 			return
@@ -128,4 +190,12 @@ func parseIDs(values []string) []int64 {
 		ids = append(ids, id)
 	}
 	return ids
+}
+
+func activeProjectIDFromSession(r *http.Request) (int64, bool) {
+	session, ok := sessioncontext.GetSessionFromContext(r.Context())
+	if !ok || session.ActiveProjectID == nil || *session.ActiveProjectID <= 0 {
+		return 0, false
+	}
+	return *session.ActiveProjectID, true
 }

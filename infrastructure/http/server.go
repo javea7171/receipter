@@ -15,6 +15,7 @@ import (
 	sessioncontext "receipter/frontend/shared/context"
 	"receipter/infrastructure/audit"
 	"receipter/infrastructure/cache"
+	projectinfra "receipter/infrastructure/project"
 	"receipter/infrastructure/rbac"
 	sessioncookie "receipter/infrastructure/session"
 	"receipter/infrastructure/sqlite"
@@ -92,7 +93,7 @@ func NewServer(addr string, db *sqlite.DB, sessionCache *cache.UserSessionCache,
 			return
 		}
 
-		http.Redirect(w, r, "/tasker/pallets/progress", http.StatusSeeOther)
+		http.Redirect(w, r, "/tasker/projects", http.StatusSeeOther)
 	})
 
 	s.router.Get("/health", func(w http.ResponseWriter, _ *http.Request) {
@@ -150,6 +151,8 @@ func (s *Server) AuthenticateMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
+		s.ensureSessionActiveProject(r.Context(), &session)
+
 		path := r.URL.Path
 		skipRBAC := path == "/login" || path == "/logout"
 
@@ -201,6 +204,47 @@ func (s *Server) resolveSession(ctx context.Context, token string) (session mode
 	s.SessionCache.AddSession(dbSession)
 	s.UserCache.Add(dbSession.User.Username, dbSession.User)
 	return dbSession, true
+}
+
+func (s *Server) ensureSessionActiveProject(ctx context.Context, session *models.Session) {
+	if session == nil || session.ID == "" {
+		return
+	}
+	projectID, err := projectinfra.ResolveSessionActiveProjectID(ctx, s.DB, session.ActiveProjectID)
+	if err != nil {
+		slog.Error("resolve session active project failed", slog.String("session_id", session.ID), slog.Any("err", err))
+		return
+	}
+	if sameProjectID(session.ActiveProjectID, projectID) {
+		return
+	}
+	if err := projectinfra.SetSessionActiveProjectID(ctx, s.DB, session.ID, projectID); err != nil {
+		slog.Error("set session active project failed", slog.String("session_id", session.ID), slog.Any("err", err))
+		return
+	}
+	session.ActiveProjectID = projectID
+	if s.SessionCache != nil {
+		s.SessionCache.AddSession(*session)
+	}
+}
+
+func sameProjectID(a, b *int64) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
+}
+
+func hasRole(roles []string, role string) bool {
+	for _, r := range roles {
+		if r == role {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Server) buildRbacNamedRoutesMap(userRoles []string) map[string]int {

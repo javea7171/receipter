@@ -9,6 +9,7 @@ import (
 	palletlabels "receipter/frontend/pallets/labels"
 	palletprogress "receipter/frontend/pallets/progress"
 	palletreceipt "receipter/frontend/pallets/receipt"
+	projectspage "receipter/frontend/projects"
 	"receipter/frontend/settings"
 	"receipter/frontend/stock"
 	"receipter/infrastructure/rbac"
@@ -25,6 +26,17 @@ func (s *Server) RegisterLoginRoutes() {
 
 // RegisterAdminRoutes registers admin-only routes.
 func (s *Server) RegisterAdminRoutes(r chi.Router) chi.Router {
+	s.Rbac.Add(rbac.RoleAdmin, "PROJECTS_LIST_VIEW", http.MethodGet, "/tasker/projects")
+	s.Rbac.Add(rbac.RoleScanner, "PROJECTS_LIST_VIEW", http.MethodGet, "/tasker/projects")
+	r.Get("/projects", projectspage.ProjectsPageQueryHandler(s.DB))
+	s.Rbac.Add(rbac.RoleAdmin, "PROJECTS_CREATE", http.MethodPost, "/tasker/projects")
+	r.Post("/projects", projectspage.CreateProjectCommandHandler(s.DB, s.SessionCache, s.Audit))
+	s.Rbac.Add(rbac.RoleAdmin, "PROJECTS_ACTIVATE", http.MethodPost, "/tasker/projects/*/activate")
+	s.Rbac.Add(rbac.RoleScanner, "PROJECTS_ACTIVATE", http.MethodPost, "/tasker/projects/*/activate")
+	r.Post("/projects/{id}/activate", projectspage.ActivateProjectCommandHandler(s.DB, s.SessionCache, s.Audit))
+	s.Rbac.Add(rbac.RoleAdmin, "PROJECTS_STATUS_EDIT", http.MethodPost, "/tasker/projects/*/status")
+	r.Post("/projects/{id}/status", projectspage.UpdateProjectStatusCommandHandler(s.DB, s.SessionCache, s.Audit))
+
 	s.Rbac.Add(rbac.RoleAdmin, "ADMIN_USERS_LIST_VIEW", http.MethodGet, "/tasker/admin/users")
 	r.Get("/admin/users", adminusers.UsersPageQueryHandler(s.DB, s.UserCache))
 	s.Rbac.Add(rbac.RoleAdmin, "ADMIN_USERS_CREATE", http.MethodPost, "/tasker/admin/users")

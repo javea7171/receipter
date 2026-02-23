@@ -14,6 +14,7 @@ type ActiveNav string
 const (
 	NavPallets  ActiveNav = "pallets"
 	NavScan     ActiveNav = "scan"
+	NavProjects ActiveNav = "projects"
 	NavImports  ActiveNav = "imports"
 	NavExports  ActiveNav = "exports"
 	NavSettings ActiveNav = "settings"
@@ -26,6 +27,10 @@ func dockActive(current, item ActiveNav) string {
 		return "dock-active"
 	}
 	return ""
+}
+
+func topBarHomeHref(showAdminLinks bool) string {
+	return "/tasker/projects"
 }
 
 func Dock(active ActiveNav) templ.Component {
@@ -82,12 +87,12 @@ func DockWithRole(active ActiveNav, showAdminLinks bool) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var3 = []any{dockActive(active, NavPallets)}
+		var templ_7745c5c3_Var3 = []any{dockActive(active, NavProjects)}
 		templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var3...)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<a href=\"/tasker/pallets/progress\" class=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<a href=\"/tasker/projects\" class=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -100,7 +105,7 @@ func DockWithRole(active ActiveNav, showAdminLinks bool) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "\"><svg xmlns=\"http://www.w3.org/2000/svg\" fill=\"none\" viewBox=\"0 0 24 24\" stroke-width=\"1.5\" stroke=\"currentColor\" class=\"size-6\"><path stroke-linecap=\"round\" stroke-linejoin=\"round\" d=\"m20.25 7.5-.625 10.632a2.25 2.25 0 0 1-2.247 2.118H6.622a2.25 2.25 0 0 1-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z\"></path></svg> <span class=\"dock-label\">Pallets</span></a> ")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "\"><svg xmlns=\"http://www.w3.org/2000/svg\" fill=\"none\" viewBox=\"0 0 24 24\" stroke-width=\"1.5\" stroke=\"currentColor\" class=\"size-6\"><path stroke-linecap=\"round\" stroke-linejoin=\"round\" d=\"M3.75 3.75h4.5v4.5h-4.5v-4.5Zm6 0h4.5v4.5h-4.5v-4.5Zm6 0h4.5v4.5h-4.5v-4.5Zm-12 6h4.5v4.5h-4.5v-4.5Zm6 0h4.5v4.5h-4.5v-4.5Zm6 0h4.5v4.5h-4.5v-4.5Z\"></path></svg> <span class=\"dock-label\">Projects</span></a> ")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -252,27 +257,40 @@ func TopBarWithRole(title string, showAdminLinks bool) templ.Component {
 			templ_7745c5c3_Var14 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "<div class=\"navbar bg-base-100 border-b border-base-300 sticky top-0 z-30\"><div class=\"navbar-start\"><a href=\"/tasker/pallets/progress\" class=\"btn btn-ghost text-lg font-bold tracking-tight\">Receipter</a></div><div class=\"navbar-center hidden lg:flex\"><ul class=\"menu menu-horizontal gap-1\"><li><a href=\"/tasker/pallets/progress\">Pallets</a></li><li><a href=\"/tasker/scan/pallet\">Scan</a></li>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "<div class=\"navbar bg-base-100 border-b border-base-300 sticky top-0 z-30\"><div class=\"navbar-start\"><a href=\"")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var15 templ.SafeURL
+		templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinURLErrs(topBarHomeHref(showAdminLinks))
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/shared/html/navigation.templ`, Line: 78, Col: 43}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var15))
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "\" class=\"btn btn-ghost text-lg font-bold tracking-tight\">Receipter</a></div><div class=\"navbar-center hidden lg:flex\"><ul class=\"menu menu-horizontal gap-1\"><li><a href=\"/tasker/projects\">Projects</a></li><li><a href=\"/tasker/scan/pallet\">Scan</a></li>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		if showAdminLinks {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "<li><a href=\"/tasker/stock/import\">Imports</a></li><li><a href=\"/tasker/exports\">Exports</a></li><li><a href=\"/tasker/settings/notifications\">Settings</a></li><li><a href=\"/tasker/admin/users\">Users</a></li>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "<li><a href=\"/tasker/stock/import\">Imports</a></li><li><a href=\"/tasker/exports\">Exports</a></li><li><a href=\"/tasker/settings/notifications\">Settings</a></li><li><a href=\"/tasker/admin/users\">Users</a></li>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "</ul></div><div class=\"navbar-end\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "</ul></div><div class=\"navbar-end\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		if showAdminLinks {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "<a class=\"btn btn-ghost btn-sm lg:hidden\" href=\"/tasker/admin/users\">Users</a>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "<a class=\"btn btn-ghost btn-sm lg:hidden\" href=\"/tasker/admin/users\">Users</a>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "<form method=\"post\" action=\"/logout\"><button class=\"btn btn-ghost btn-sm\" type=\"submit\">Logout</button></form></div></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "<form method=\"post\" action=\"/logout\"><button class=\"btn btn-ghost btn-sm\" type=\"submit\">Logout</button></form></div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

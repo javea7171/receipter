@@ -28,6 +28,16 @@ func openLabelsTestDB(t *testing.T) *sqlite.DB {
 	if err := sqlite.ApplyMigrations(context.Background(), db, migrationsDir); err != nil {
 		t.Fatalf("apply migrations: %v", err)
 	}
+	err = db.WithWriteTx(context.Background(), func(ctx context.Context, tx bun.Tx) error {
+		_, err := tx.ExecContext(ctx, `
+INSERT INTO projects (id, name, description, project_date, client_name, code, status, created_at, updated_at)
+VALUES (1, 'Labels Test', 'Labels test project', DATE('now'), 'Test Client', 'labels-test', 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+`)
+		return err
+	})
+	if err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
 
 	return db
 }
@@ -42,19 +52,19 @@ func TestLoadPalletContent_IncludesScannerUsername(t *testing.T) {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO users (id, username, password_hash, role, created_at, updated_at) VALUES (2, 'scanner1', 'hash', 'scanner', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`); err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO pallets (id, status, created_at) VALUES (1, 'open', CURRENT_TIMESTAMP)`); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO pallets (id, project_id, status, created_at) VALUES (1, 1, 'open', CURRENT_TIMESTAMP)`); err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO stock_items (id, sku, description, created_at, updated_at) VALUES (1, 'SKU1', 'Item 1', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO stock_items (id, project_id, sku, description, created_at, updated_at) VALUES (1, 1, 'SKU1', 'Item 1', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`); err != nil {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, `
 INSERT INTO pallet_receipts (
-	pallet_id, stock_item_id, scanned_by_user_id, qty, damaged, damaged_qty,
+	project_id, pallet_id, stock_item_id, scanned_by_user_id, qty, damaged, damaged_qty,
 	batch_number, expiry_date, carton_barcode, item_barcode,
 	no_outer_barcode, no_inner_barcode, created_at, updated_at
 ) VALUES (
-	1, 1, 2, 5, 0, 0,
+	1, 1, 1, 2, 5, 0, 0,
 	'B-1', '2028-03-12', '', '',
 	0, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
 )`); err != nil {

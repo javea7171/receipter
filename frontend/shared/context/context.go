@@ -16,3 +16,11 @@ func GetSessionFromContext(ctx context.Context) (models.Session, bool) {
 	s, ok := ctx.Value(sessionKey{}).(models.Session)
 	return s, ok
 }
+
+func ActiveProjectIDFromContext(ctx context.Context) (int64, bool) {
+	s, ok := GetSessionFromContext(ctx)
+	if !ok || s.ActiveProjectID == nil || *s.ActiveProjectID <= 0 {
+		return 0, false
+	}
+	return *s.ActiveProjectID, true
+}

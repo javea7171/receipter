@@ -14,6 +14,11 @@ import (
 )
 
 type Summary struct {
+	ProjectID          int64
+	ProjectName        string
+	ProjectClientName  string
+	ProjectStatus      string
+	IsAdmin            bool
 	CreatedCount       int
 	OpenCount          int
 	ClosedCount        int
@@ -36,16 +41,20 @@ type PalletRow struct {
 	CanReopen  bool   `bun:"-"`
 }
 
-func LoadSummary(ctx context.Context, db *sqlite.DB, statusFilter string) (Summary, error) {
-	s := Summary{StatusFilter: normalizeStatusFilter(statusFilter)}
+func LoadSummary(ctx context.Context, db *sqlite.DB, projectID int64, statusFilter string) (Summary, error) {
+	s := Summary{ProjectID: projectID, StatusFilter: normalizeStatusFilter(statusFilter)}
 	err := db.WithReadTx(ctx, func(ctx context.Context, tx bun.Tx) error {
-		if err := tx.NewRaw("SELECT COUNT(*) FROM pallets WHERE status = 'created'").Scan(ctx, &s.CreatedCount); err != nil {
+		if err := tx.NewRaw(`SELECT name, client_name, status FROM projects WHERE id = ?`, projectID).Scan(ctx, &s.ProjectName, &s.ProjectClientName, &s.ProjectStatus); err != nil {
 			return err
 		}
-		if err := tx.NewRaw("SELECT COUNT(*) FROM pallets WHERE status = 'open'").Scan(ctx, &s.OpenCount); err != nil {
+
+		if err := tx.NewRaw("SELECT COUNT(*) FROM pallets WHERE project_id = ? AND status = 'created'", projectID).Scan(ctx, &s.CreatedCount); err != nil {
 			return err
 		}
-		if err := tx.NewRaw("SELECT COUNT(*) FROM pallets WHERE status = 'closed'").Scan(ctx, &s.ClosedCount); err != nil {
+		if err := tx.NewRaw("SELECT COUNT(*) FROM pallets WHERE project_id = ? AND status = 'open'", projectID).Scan(ctx, &s.OpenCount); err != nil {
+			return err
+		}
+		if err := tx.NewRaw("SELECT COUNT(*) FROM pallets WHERE project_id = ? AND status = 'closed'", projectID).Scan(ctx, &s.ClosedCount); err != nil {
 			return err
 		}
 
@@ -55,10 +64,12 @@ SELECT p.id, p.status,
        strftime('%d/%m/%Y %H:%M', p.created_at) AS created_at,
        COALESCE(strftime('%d/%m/%Y %H:%M', p.closed_at), '') AS closed_at,
        COALESCE(strftime('%d/%m/%Y %H:%M', p.reopened_at), '') AS reopened_at
-FROM pallets p`
-		args := make([]any, 0, 1)
+FROM pallets p
+WHERE p.project_id = ?`
+		args := make([]any, 0, 2)
+		args = append(args, projectID)
 		if s.StatusFilter != "all" {
-			q += " WHERE p.status = ?"
+			q += " AND p.status = ?"
 			args = append(args, s.StatusFilter)
 		}
 		q += " ORDER BY p.id DESC"
@@ -75,17 +86,25 @@ FROM pallets p`
 	return s, err
 }
 
-func updatePalletStatus(ctx context.Context, db *sqlite.DB, auditSvc *audit.Service, userID, palletID int64, toStatus string) error {
+func updatePalletStatus(ctx context.Context, db *sqlite.DB, auditSvc *audit.Service, userID, projectID, palletID int64, toStatus string) error {
 	return db.WithWriteTx(ctx, func(ctx context.Context, tx bun.Tx) error {
+		var projectStatus string
+		if err := tx.NewRaw(`SELECT status FROM projects WHERE id = ?`, projectID).Scan(ctx, &projectStatus); err != nil {
+			return err
+		}
+		if projectStatus != "active" {
+			return fmt.Errorf("inactive projects are read-only")
+		}
+
 		var before models.Pallet
-		if err := tx.NewSelect().Model(&before).Where("id = ?", palletID).Limit(1).Scan(ctx); err != nil {
+		if err := tx.NewSelect().Model(&before).Where("id = ?", palletID).Where("project_id = ?", projectID).Limit(1).Scan(ctx); err != nil {
 			return err
 		}
 
 		now := time.Now()
 		switch toStatus {
 		case "closed":
-			res, err := tx.NewRaw(`UPDATE pallets SET status = 'closed', closed_at = ?, reopened_at = NULL WHERE id = ? AND status = 'open'`, now, palletID).Exec(ctx)
+			res, err := tx.NewRaw(`UPDATE pallets SET status = 'closed', closed_at = ?, reopened_at = NULL WHERE id = ? AND project_id = ? AND status = 'open'`, now, palletID, projectID).Exec(ctx)
 			if err != nil {
 				return err
 			}
@@ -93,7 +112,7 @@ func updatePalletStatus(ctx context.Context, db *sqlite.DB, auditSvc *audit.Serv
 				return fmt.Errorf("pallet must be open to close")
 			}
 		case "open":
-			res, err := tx.NewRaw(`UPDATE pallets SET status = 'open', reopened_at = ? WHERE id = ? AND status = 'closed'`, now, palletID).Exec(ctx)
+			res, err := tx.NewRaw(`UPDATE pallets SET status = 'open', reopened_at = ? WHERE id = ? AND project_id = ? AND status = 'closed'`, now, palletID, projectID).Exec(ctx)
 			if err != nil {
 				return err
 			}
@@ -105,7 +124,7 @@ func updatePalletStatus(ctx context.Context, db *sqlite.DB, auditSvc *audit.Serv
 		}
 
 		var after models.Pallet
-		if err := tx.NewSelect().Model(&after).Where("id = ?", palletID).Limit(1).Scan(ctx); err != nil {
+		if err := tx.NewSelect().Model(&after).Where("id = ?", palletID).Where("project_id = ?", projectID).Limit(1).Scan(ctx); err != nil {
 			return err
 		}
 
