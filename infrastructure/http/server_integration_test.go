@@ -247,6 +247,18 @@ func stockItemCount(t *testing.T, db *sqlite.DB) int64 {
 	return count
 }
 
+func palletCount(t *testing.T, db *sqlite.DB) int64 {
+	t.Helper()
+	var count int64
+	err := db.WithReadTx(context.Background(), func(ctx context.Context, tx bun.Tx) error {
+		return tx.NewRaw(`SELECT COUNT(*) FROM pallets`).Scan(ctx, &count)
+	})
+	if err != nil {
+		t.Fatalf("count pallets: %v", err)
+	}
+	return count
+}
+
 func projectIDByCode(t *testing.T, db *sqlite.DB, code string) int64 {
 	t.Helper()
 	var id int64
@@ -764,6 +776,63 @@ func TestClosedPalletReceiptPermissions_ScannerDeniedAdminAllowed(t *testing.T) 
 	}
 }
 
+func TestCancelledPalletIsReadOnlyForAdminAndScanner(t *testing.T) {
+	env, _ := setupIntegrationServer(t)
+	adminClient := newHTTPClient(t)
+	scannerClient := newHTTPClient(t)
+
+	loginAs(t, adminClient, env.server.URL, "admin", "Admin123!Receipter")
+	resp := postForm(t, adminClient, env.server.URL, "/tasker/pallets/new", nil)
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected new pallet 303, got %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+
+	resp = postForm(t, adminClient, env.server.URL, "/tasker/api/pallets/1/cancel", nil)
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected cancel pallet 303, got %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+
+	rowsBefore, qtyBefore := countReceiptRowsQty(t, env.db, 1)
+
+	resp = postForm(t, adminClient, env.server.URL, "/tasker/api/pallets/1/receipts", url.Values{
+		"sku":          {"SKU-CANCEL"},
+		"description":  {"Cancelled"},
+		"qty":          {"1"},
+		"batch_number": {"C1"},
+		"expiry_date":  {"2028-01-01"},
+	})
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected admin cancelled receipt post 303, got %d", resp.StatusCode)
+	}
+	if !strings.Contains(resp.Header.Get("Location"), "cancelled+pallets+are+read-only") {
+		t.Fatalf("expected cancelled pallet error redirect for admin, got %s", resp.Header.Get("Location"))
+	}
+	_ = resp.Body.Close()
+
+	loginAs(t, scannerClient, env.server.URL, "scanner1", "Scanner123!Receipter")
+	resp = postForm(t, scannerClient, env.server.URL, "/tasker/api/pallets/1/receipts", url.Values{
+		"sku":          {"SKU-CANCEL"},
+		"description":  {"Cancelled"},
+		"qty":          {"1"},
+		"batch_number": {"C1"},
+		"expiry_date":  {"2028-01-01"},
+	})
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected scanner cancelled receipt post 303, got %d", resp.StatusCode)
+	}
+	if !strings.Contains(resp.Header.Get("Location"), "cancelled+pallets+are+read-only") {
+		t.Fatalf("expected cancelled pallet error redirect for scanner, got %s", resp.Header.Get("Location"))
+	}
+	_ = resp.Body.Close()
+
+	rowsAfter, qtyAfter := countReceiptRowsQty(t, env.db, 1)
+	if rowsAfter != rowsBefore || qtyAfter != qtyBefore {
+		t.Fatalf("expected no receipt changes on cancelled pallet; before rows=%d qty=%d after rows=%d qty=%d", rowsBefore, qtyBefore, rowsAfter, qtyAfter)
+	}
+}
+
 func TestInactiveProjectPalletCannotBeModifiedByScannerOrAdmin(t *testing.T) {
 	env, _ := setupIntegrationServer(t)
 	adminClient := newHTTPClient(t)
@@ -988,6 +1057,39 @@ func TestExportRunLogged(t *testing.T) {
 	}
 }
 
+func TestBulkPalletLabelGenerationReturnsSinglePDF(t *testing.T) {
+	env, client := setupIntegrationServer(t)
+	loginAs(t, client, env.server.URL, "admin", "Admin123!Receipter")
+
+	before := palletCount(t, env.db)
+
+	resp := postForm(t, client, env.server.URL, "/tasker/pallets/new/bulk", url.Values{
+		"count": {"3"},
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected bulk labels 200, got %d", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); !strings.Contains(ct, "application/pdf") {
+		t.Fatalf("expected pdf content type, got %s", ct)
+	}
+	if cd := resp.Header.Get("Content-Disposition"); !strings.Contains(cd, "pallet-labels-") {
+		t.Fatalf("expected bulk label file name, got %s", cd)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read bulk labels body: %v", err)
+	}
+	_ = resp.Body.Close()
+	if len(body) == 0 {
+		t.Fatalf("expected non-empty bulk labels pdf body")
+	}
+
+	after := palletCount(t, env.db)
+	if after != before+3 {
+		t.Fatalf("expected pallet count to increase by 3; before=%d after=%d", before, after)
+	}
+}
+
 func TestServerEndToEndCoreFlow(t *testing.T) {
 	env, client := setupIntegrationServer(t)
 	loginAs(t, client, env.server.URL, "admin", "Admin123!Receipter")
@@ -1048,7 +1150,7 @@ func TestServerEndToEndCoreFlow(t *testing.T) {
 	_ = resp.Body.Close()
 
 	csvText := string(body)
-	if !strings.Contains(csvText, "pallet_id,sku,description,qty,item_barcode,carton_barcode,expiry,batch_number") {
+	if !strings.Contains(csvText, "pallet_id,sku,description,qty,case_size,item_barcode,carton_barcode,expiry,batch_number") {
 		t.Fatalf("missing csv header")
 	}
 	if !strings.Contains(csvText, "SKU-1") {

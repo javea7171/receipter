@@ -43,6 +43,28 @@ func CreateNextPallet(ctx context.Context, db *sqlite.DB, projectID int64) (mode
 	return pallet, err
 }
 
+func CreateNextPallets(ctx context.Context, db *sqlite.DB, projectID int64, count int) ([]models.Pallet, error) {
+	if count <= 0 {
+		return []models.Pallet{}, nil
+	}
+	pallets := make([]models.Pallet, 0, count)
+	err := db.WithWriteTx(ctx, func(ctx context.Context, tx bun.Tx) error {
+		nextID, err := nextPalletID(ctx, tx)
+		if err != nil {
+			return err
+		}
+		for i := 0; i < count; i++ {
+			pallet, err := insertPallet(ctx, tx, nextID+int64(i), projectID)
+			if err != nil {
+				return err
+			}
+			pallets = append(pallets, pallet)
+		}
+		return nil
+	})
+	return pallets, err
+}
+
 func LoadPalletByID(ctx context.Context, db *sqlite.DB, id int64) (models.Pallet, error) {
 	var pallet models.Pallet
 	err := db.WithReadTx(ctx, func(ctx context.Context, tx bun.Tx) error {

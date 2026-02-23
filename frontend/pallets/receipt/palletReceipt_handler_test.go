@@ -105,6 +105,30 @@ func TestCreateReceiptCommandHandler_MissingSKURedirectsError(t *testing.T) {
 	}
 }
 
+func TestCreateReceiptCommandHandler_InvalidCaseSizeRedirectsError(t *testing.T) {
+	db := openTestDB(t)
+	seedPallet(t, db, 12)
+	handler := CreateReceiptCommandHandler(db, nil)
+
+	req := newReceiptFormRequestWithSession("12", url.Values{
+		"sku":         {"SKU-CASE"},
+		"description": {"Invalid case size"},
+		"qty":         {"1"},
+		"case_size":   {"0"},
+		"expiry_date": {"2028-01-01"},
+	})
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusSeeOther {
+		t.Fatalf("expected 303 redirect, got %d", rr.Code)
+	}
+	location := rr.Header().Get("Location")
+	if !strings.Contains(location, "case+size+must+be+greater+than+0") {
+		t.Fatalf("unexpected redirect location: %s", location)
+	}
+}
+
 func TestCreateReceiptCommandHandler_InvalidMultipartRedirectsError(t *testing.T) {
 	db := openTestDB(t)
 	handler := CreateReceiptCommandHandler(db, nil)

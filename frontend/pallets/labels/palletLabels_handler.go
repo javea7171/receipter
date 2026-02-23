@@ -16,33 +16,83 @@ import (
 	projectinfra "receipter/infrastructure/project"
 	"receipter/infrastructure/rbac"
 	"receipter/infrastructure/sqlite"
+	"receipter/models"
 )
 
 // NewPalletCommandHandler creates a new pallet and redirects to its label page.
 func NewPalletCommandHandler(db *sqlite.DB, _ *audit.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		session, ok := sessioncontext.GetSessionFromContext(r.Context())
-		if !ok || session.ActiveProjectID == nil || *session.ActiveProjectID <= 0 {
-			http.Redirect(w, r, "/tasker/projects?status="+url.QueryEscape("No active project selected"), http.StatusSeeOther)
+		project, ok := requireActiveProjectForPalletWrites(w, r, db)
+		if !ok {
 			return
 		}
 
-		isActive, err := projectinfra.IsActiveByID(r.Context(), db, *session.ActiveProjectID)
-		if err != nil {
-			http.Error(w, "failed to load project", http.StatusInternalServerError)
-			return
-		}
-		if !isActive {
-			http.Redirect(w, r, "/tasker/projects?status="+url.QueryEscape("Inactive projects are read-only"), http.StatusSeeOther)
-			return
-		}
-
-		pallet, err := CreateNextPallet(r.Context(), db, *session.ActiveProjectID)
+		pallet, err := CreateNextPallet(r.Context(), db, project.ID)
 		if err != nil {
 			http.Error(w, "failed to create pallet", http.StatusInternalServerError)
 			return
 		}
 		http.Redirect(w, r, fmt.Sprintf("/tasker/pallets/%d/label", pallet.ID), http.StatusSeeOther)
+	}
+}
+
+// NewPalletBulkCommandHandler creates multiple pallets and returns their labels in one PDF.
+func NewPalletBulkCommandHandler(db *sqlite.DB, _ *audit.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		project, ok := requireActiveProjectForPalletWrites(w, r, db)
+		if !ok {
+			return
+		}
+		if err := r.ParseForm(); err != nil {
+			http.Error(w, "invalid form data", http.StatusBadRequest)
+			return
+		}
+
+		count, err := strconv.Atoi(strings.TrimSpace(r.FormValue("count")))
+		if err != nil || count < 1 {
+			http.Error(w, "count must be at least 1", http.StatusBadRequest)
+			return
+		}
+		if count > 500 {
+			http.Error(w, "count must be 500 or less", http.StatusBadRequest)
+			return
+		}
+
+		pallets, err := CreateNextPallets(r.Context(), db, project.ID, count)
+		if err != nil {
+			http.Error(w, "failed to create pallets", http.StatusInternalServerError)
+			return
+		}
+		if len(pallets) == 0 {
+			http.Error(w, "no pallets generated", http.StatusInternalServerError)
+			return
+		}
+
+		labels := make([]PalletLabelData, 0, len(pallets))
+		for _, pallet := range pallets {
+			labels = append(labels, PalletLabelData{
+				PalletID:    pallet.ID,
+				ClientName:  project.ClientName,
+				ProjectName: project.Name,
+				ProjectDate: project.ProjectDate,
+			})
+		}
+		printedAt := time.Now()
+		pdfBytes, err := renderPalletLabelsPDF(labels, printedAt)
+		if err != nil {
+			http.Error(w, "failed to build labels pdf", http.StatusInternalServerError)
+			return
+		}
+
+		first := pallets[0].ID
+		last := pallets[len(pallets)-1].ID
+		fileName := fmt.Sprintf("pallet-labels-%d-%d.pdf", first, last)
+		if first == last {
+			fileName = fmt.Sprintf("pallet-%d-label.pdf", first)
+		}
+		w.Header().Set("Content-Type", "application/pdf")
+		w.Header().Set("Content-Disposition", "inline; filename="+fileName)
+		_, _ = w.Write(pdfBytes)
 	}
 }
 
@@ -69,7 +119,7 @@ func PalletLabelPageQueryHandler(db *sqlite.DB) http.HandlerFunc {
 		}
 
 		printedAt := time.Now()
-		pdfBytes, _, err := renderPalletLabelPDF(pallet.ID, project.ClientName, printedAt)
+		pdfBytes, _, err := renderPalletLabelPDF(pallet.ID, project.ClientName, project.Name, project.ProjectDate, printedAt)
 		if err != nil {
 			http.Error(w, "failed to build label pdf", http.StatusInternalServerError)
 			return
@@ -139,4 +189,23 @@ func hasRole(userRoles []string, role string) bool {
 		}
 	}
 	return false
+}
+
+func requireActiveProjectForPalletWrites(w http.ResponseWriter, r *http.Request, db *sqlite.DB) (project models.Project, ok bool) {
+	session, hasSession := sessioncontext.GetSessionFromContext(r.Context())
+	if !hasSession || session.ActiveProjectID == nil || *session.ActiveProjectID <= 0 {
+		http.Redirect(w, r, "/tasker/projects?status="+url.QueryEscape("No active project selected"), http.StatusSeeOther)
+		return project, false
+	}
+
+	project, err := projectinfra.LoadByID(r.Context(), db, *session.ActiveProjectID)
+	if err != nil {
+		http.Error(w, "failed to load project", http.StatusInternalServerError)
+		return project, false
+	}
+	if project.Status != projectinfra.StatusActive {
+		http.Redirect(w, r, "/tasker/projects?status="+url.QueryEscape("Inactive projects are read-only"), http.StatusSeeOther)
+		return project, false
+	}
+	return project, true
 }

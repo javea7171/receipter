@@ -50,6 +50,8 @@ func ReceiptPageQueryHandler(db *sqlite.DB, _ *cache.UserSessionCache) http.Hand
 		if !data.CanEdit {
 			if data.ProjectStatus != "active" {
 				data.Message = "Project is inactive. This pallet is read-only."
+			} else if data.PalletStatus == "cancelled" {
+				data.Message = "Pallet is cancelled. This pallet is read-only."
 			} else {
 				data.Message = "Pallet is closed. Only admins can add or edit receipt lines."
 			}
@@ -93,6 +95,8 @@ func CreateReceiptCommandHandler(db *sqlite.DB, auditSvc *audit.Service) http.Ha
 			msg := "closed pallets can only be edited by admins"
 			if projectStatus != "active" {
 				msg = "inactive projects are read-only"
+			} else if palletStatus == "cancelled" {
+				msg = "cancelled pallets are read-only"
 			}
 			http.Redirect(w, r, "/tasker/pallets/"+strconv.FormatInt(id, 10)+"/receipt?error="+url.QueryEscape(msg), http.StatusSeeOther)
 			return
@@ -101,6 +105,11 @@ func CreateReceiptCommandHandler(db *sqlite.DB, auditSvc *audit.Service) http.Ha
 		qty, err := strconv.ParseInt(strings.TrimSpace(r.FormValue("qty")), 10, 64)
 		if err != nil || qty <= 0 {
 			http.Redirect(w, r, "/tasker/pallets/"+strconv.FormatInt(id, 10)+"/receipt?error="+url.QueryEscape("qty must be greater than 0"), http.StatusSeeOther)
+			return
+		}
+		caseSize, err := strconv.ParseInt(strings.TrimSpace(defaultOne(r.FormValue("case_size"))), 10, 64)
+		if err != nil || caseSize <= 0 {
+			http.Redirect(w, r, "/tasker/pallets/"+strconv.FormatInt(id, 10)+"/receipt?error="+url.QueryEscape("case size must be greater than 0"), http.StatusSeeOther)
 			return
 		}
 
@@ -130,6 +139,7 @@ func CreateReceiptCommandHandler(db *sqlite.DB, auditSvc *audit.Service) http.Ha
 			SKU:            strings.TrimSpace(r.FormValue("sku")),
 			Description:    strings.TrimSpace(r.FormValue("description")),
 			Qty:            qty,
+			CaseSize:       caseSize,
 			Damaged:        damaged,
 			DamagedQty:     damagedQty,
 			BatchNumber:    strings.TrimSpace(r.FormValue("batch_number")),
@@ -171,6 +181,9 @@ func CreateReceiptCommandHandler(db *sqlite.DB, auditSvc *audit.Service) http.Ha
 
 func CanUserReceiptPallet(projectStatus, palletStatus string, userRoles []string) bool {
 	if projectStatus != "active" {
+		return false
+	}
+	if palletStatus == "cancelled" {
 		return false
 	}
 	if palletStatus == "created" || palletStatus == "open" {
@@ -261,6 +274,14 @@ func defaultZero(v string) string {
 	v = strings.TrimSpace(v)
 	if v == "" {
 		return "0"
+	}
+	return v
+}
+
+func defaultOne(v string) string {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return "1"
 	}
 	return v
 }

@@ -158,6 +158,30 @@ func TestSaveReceipt_DoesNotMergeDifferentBatch(t *testing.T) {
 	}
 }
 
+func TestSaveReceipt_DoesNotMergeDifferentCaseSize(t *testing.T) {
+	db := openTestDB(t)
+	seedPallet(t, db, 33)
+
+	expiry, _ := time.Parse("2006-01-02", "2027-05-01")
+	in1 := ReceiptInput{PalletID: 33, SKU: "CASE", Description: "Case size one", Qty: 2, CaseSize: 6, BatchNumber: "CS1", ExpiryDate: expiry}
+	in2 := ReceiptInput{PalletID: 33, SKU: "CASE", Description: "Case size two", Qty: 3, CaseSize: 12, BatchNumber: "CS1", ExpiryDate: expiry}
+
+	if err := SaveReceipt(context.Background(), db, nil, 1, in1); err != nil {
+		t.Fatalf("save receipt 1: %v", err)
+	}
+	if err := SaveReceipt(context.Background(), db, nil, 1, in2); err != nil {
+		t.Fatalf("save receipt 2: %v", err)
+	}
+
+	rows, qty := countReceiptRows(t, db, 33)
+	if rows != 2 {
+		t.Fatalf("expected 2 rows for different case size, got %d", rows)
+	}
+	if qty != 5 {
+		t.Fatalf("expected qty sum 5, got %d", qty)
+	}
+}
+
 func TestSaveReceipt_DamagedQtyCannotExceedQty(t *testing.T) {
 	db := openTestDB(t)
 	seedPallet(t, db, 4)
@@ -212,6 +236,28 @@ func TestSaveReceipt_PromotesCreatedPalletToOpenOnFirstLine(t *testing.T) {
 	}
 }
 
+func TestSaveReceipt_CancelledPalletIsReadOnly(t *testing.T) {
+	db := openTestDB(t)
+	seedPalletWithStatus(t, db, 8, "cancelled")
+
+	expiry, _ := time.Parse("2006-01-02", "2028-06-01")
+	in := ReceiptInput{
+		PalletID:    8,
+		SKU:         "CANCELLED-1",
+		Description: "Should not save",
+		Qty:         1,
+		BatchNumber: "C1",
+		ExpiryDate:  expiry,
+	}
+	err := SaveReceipt(context.Background(), db, nil, 1, in)
+	if err == nil {
+		t.Fatalf("expected cancelled pallet write rejection")
+	}
+	if !strings.Contains(err.Error(), "cancelled pallets are read-only") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestLoadPageData_IncludesPrimaryAndMultiPhotoLinks(t *testing.T) {
 	db := openTestDB(t)
 	seedPallet(t, db, 5)
@@ -222,6 +268,7 @@ func TestLoadPageData_IncludesPrimaryAndMultiPhotoLinks(t *testing.T) {
 		SKU:            "PIC-1",
 		Description:    "Photo Item",
 		Qty:            2,
+		CaseSize:       24,
 		BatchNumber:    "PB1",
 		ExpiryDate:     expiry,
 		StockPhotoBlob: []byte{0xFF, 0xD8, 0xFF, 0xD9},
@@ -247,6 +294,9 @@ func TestLoadPageData_IncludesPrimaryAndMultiPhotoLinks(t *testing.T) {
 	line := data.Lines[0]
 	if !line.HasPhoto {
 		t.Fatalf("expected line.HasPhoto true")
+	}
+	if line.CaseSize != 24 {
+		t.Fatalf("expected line.CaseSize 24, got %d", line.CaseSize)
 	}
 	if !line.HasPrimaryPhoto {
 		t.Fatalf("expected line.HasPrimaryPhoto true")

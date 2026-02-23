@@ -22,6 +22,7 @@ type Summary struct {
 	CreatedCount       int
 	OpenCount          int
 	ClosedCount        int
+	CancelledCount     int
 	StatusFilter       string
 	CanViewContent     bool
 	CanCreatePallet    bool
@@ -39,6 +40,7 @@ type PalletRow struct {
 	ReopenedAt string `bun:"reopened_at"`
 	CanClose   bool   `bun:"-"`
 	CanReopen  bool   `bun:"-"`
+	CanCancel  bool   `bun:"-"`
 }
 
 func LoadSummary(ctx context.Context, db *sqlite.DB, projectID int64, statusFilter string) (Summary, error) {
@@ -55,6 +57,9 @@ func LoadSummary(ctx context.Context, db *sqlite.DB, projectID int64, statusFilt
 			return err
 		}
 		if err := tx.NewRaw("SELECT COUNT(*) FROM pallets WHERE project_id = ? AND status = 'closed'", projectID).Scan(ctx, &s.ClosedCount); err != nil {
+			return err
+		}
+		if err := tx.NewRaw("SELECT COUNT(*) FROM pallets WHERE project_id = ? AND status = 'cancelled'", projectID).Scan(ctx, &s.CancelledCount); err != nil {
 			return err
 		}
 
@@ -80,6 +85,7 @@ WHERE p.project_id = ?`
 		for i := range s.Pallets {
 			s.Pallets[i].CanClose = s.Pallets[i].Status == "open"
 			s.Pallets[i].CanReopen = s.Pallets[i].Status == "closed"
+			s.Pallets[i].CanCancel = s.Pallets[i].Status != "cancelled"
 		}
 		return nil
 	})
@@ -119,6 +125,14 @@ func updatePalletStatus(ctx context.Context, db *sqlite.DB, auditSvc *audit.Serv
 			if n, _ := res.RowsAffected(); n == 0 {
 				return fmt.Errorf("pallet must be closed to reopen")
 			}
+		case "cancelled":
+			res, err := tx.NewRaw(`UPDATE pallets SET status = 'cancelled', closed_at = COALESCE(closed_at, ?), reopened_at = NULL WHERE id = ? AND project_id = ? AND status != 'cancelled'`, now, palletID, projectID).Exec(ctx)
+			if err != nil {
+				return err
+			}
+			if n, _ := res.RowsAffected(); n == 0 {
+				return fmt.Errorf("pallet is already cancelled")
+			}
 		default:
 			return fmt.Errorf("invalid pallet status transition: %s", toStatus)
 		}
@@ -132,6 +146,8 @@ func updatePalletStatus(ctx context.Context, db *sqlite.DB, auditSvc *audit.Serv
 			action := "pallet.close"
 			if toStatus == "open" {
 				action = "pallet.reopen"
+			} else if toStatus == "cancelled" {
+				action = "pallet.cancel"
 			}
 			if err := auditSvc.Write(ctx, tx, userID, action, "pallets", toString(palletID), before, after); err != nil {
 				return err
@@ -153,6 +169,8 @@ func normalizeStatusFilter(v string) string {
 		return "open"
 	case "closed":
 		return "closed"
+	case "cancelled":
+		return "cancelled"
 	default:
 		return "all"
 	}

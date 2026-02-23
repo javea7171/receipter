@@ -87,6 +87,7 @@ type PalletReceipt struct {
 	StockItemID     int64     `bun:"stock_item_id,notnull"`
 	ScannedByUserID int64     `bun:"scanned_by_user_id,notnull"`
 	Qty             int64     `bun:"qty,notnull"`
+	CaseSize        int64     `bun:"case_size,notnull,default:1"`
 	Damaged         bool      `bun:"damaged,notnull,default:false"`
 	DamagedQty      int64     `bun:"damaged_qty,notnull,default:0"`
 	BatchNumber     string    `bun:"batch_number"`

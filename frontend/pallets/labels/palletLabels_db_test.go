@@ -90,3 +90,23 @@ INSERT INTO pallet_receipts (
 		t.Fatalf("expected scanner1, got %q", lines[0].ScannedBy)
 	}
 }
+
+func TestCreateNextPallets_BulkAllocatesSequentialIDs(t *testing.T) {
+	db := openLabelsTestDB(t)
+
+	pallets, err := CreateNextPallets(context.Background(), db, 1, 3)
+	if err != nil {
+		t.Fatalf("create pallets bulk: %v", err)
+	}
+	if len(pallets) != 3 {
+		t.Fatalf("expected 3 pallets, got %d", len(pallets))
+	}
+	if pallets[0].ID != 1 || pallets[1].ID != 2 || pallets[2].ID != 3 {
+		t.Fatalf("expected sequential ids 1,2,3 got %+v", pallets)
+	}
+	for _, pallet := range pallets {
+		if pallet.ProjectID != 1 {
+			t.Fatalf("expected project_id=1, got %d", pallet.ProjectID)
+		}
+	}
+}

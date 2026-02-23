@@ -64,6 +64,8 @@ func (s *Server) RegisterPalletRoutes(r chi.Router) {
 
 	s.Rbac.Add(rbac.RoleAdmin, "PALLET_CREATE", http.MethodPost, "/tasker/pallets/new")
 	r.Post("/pallets/new", palletlabels.NewPalletCommandHandler(s.DB, s.Audit))
+	s.Rbac.Add(rbac.RoleAdmin, "PALLET_CREATE_BULK", http.MethodPost, "/tasker/pallets/new/bulk")
+	r.Post("/pallets/new/bulk", palletlabels.NewPalletBulkCommandHandler(s.DB, s.Audit))
 
 	s.Rbac.Add(rbac.RoleAdmin, "PALLET_LABEL_VIEW", http.MethodGet, "/tasker/pallets/*/label")
 	r.Get("/pallets/{id}/label", palletlabels.PalletLabelPageQueryHandler(s.DB))
@@ -92,6 +94,8 @@ func (s *Server) RegisterPalletRoutes(r chi.Router) {
 
 	s.Rbac.Add(rbac.RoleAdmin, "PALLET_REOPEN", http.MethodPost, "/tasker/api/pallets/*/reopen")
 	r.Post("/api/pallets/{id}/reopen", palletprogress.ReopenPalletCommandHandler(s.DB, s.Audit))
+	s.Rbac.Add(rbac.RoleAdmin, "PALLET_CANCEL", http.MethodPost, "/tasker/api/pallets/*/cancel")
+	r.Post("/api/pallets/{id}/cancel", palletprogress.CancelPalletCommandHandler(s.DB, s.Audit))
 
 	s.Rbac.Add(rbac.RoleScanner, "STOCK_SEARCH", http.MethodGet, "/tasker/api/stock/search")
 	r.Get("/api/stock/search", palletreceipt.SearchStockQueryHandler(s.DB))

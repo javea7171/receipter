@@ -13,6 +13,7 @@ type ReceiptInput struct {
 	SKU            string
 	Description    string
 	Qty            int64
+	CaseSize       int64
 	Damaged        bool
 	DamagedQty     int64
 	BatchNumber    string
@@ -32,6 +33,7 @@ type ReceiptLineView struct {
 	SKU             string
 	Description     string
 	Qty             int64
+	CaseSize        int64
 	Damaged         bool
 	DamagedQty      int64
 	BatchNumber     string

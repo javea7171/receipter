@@ -16,6 +16,9 @@ func statusBadge(status string) string {
 	if status == "open" {
 		return "badge badge-success"
 	}
+	if status == "cancelled" {
+		return "badge badge-error"
+	}
 	return "badge badge-neutral"
 }
 
@@ -34,7 +37,7 @@ func progressRefreshURL(statusFilter string) string {
 }
 
 func progressAutoRefreshExpr(statusFilter string) string {
-	return fmt.Sprintf("@get('%s', {openWhenHidden: true})", progressRefreshURL(statusFilter))
+	return fmt.Sprintf("(function(){var m=document.getElementById('cancel-pallet-modal');if(!m||!m.open){@get('%s', {openWhenHidden: true})}})()", progressRefreshURL(statusFilter))
 }
 
 templ PalletProgress(summary Summary) {
@@ -76,17 +79,29 @@ templ PalletProgressFragment(summary Summary) {
 								<option value="created" selected?={ filterSelected(summary.StatusFilter, "created") }>Created</option>
 								<option value="open" selected?={ filterSelected(summary.StatusFilter, "open") }>Open</option>
 								<option value="closed" selected?={ filterSelected(summary.StatusFilter, "closed") }>Closed</option>
+								<option value="cancelled" selected?={ filterSelected(summary.StatusFilter, "cancelled") }>Cancelled</option>
 							</select>
 						</fieldset>
 						<button class="btn btn-outline btn-sm" type="submit">Filter</button>
 					</form>
 					if summary.CanCreatePallet {
-						<form method="post" action="/tasker/pallets/new" target="_blank">
+						<form method="post" action="/tasker/pallets/new/bulk" target="_blank" class="flex items-end gap-2">
+							<fieldset class="fieldset">
+								<legend class="fieldset-legend text-xs uppercase tracking-wide">Labels</legend>
+								<input
+									class="input input-bordered input-sm w-24"
+									type="number"
+									name="count"
+									min="1"
+									max="500"
+									value="1"
+									required/>
+							</fieldset>
 							<button class="btn btn-primary btn-lg" type="submit">
 								<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="size-5">
 									<path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
 								</svg>
-								New Pallet
+								Generate Labels
 							</button>
 						</form>
 					}
@@ -101,7 +116,7 @@ templ PalletProgressFragment(summary Summary) {
 			}
 
 			<!-- Stats -->
-			<section class="grid grid-cols-3 gap-3">
+			<section class="grid grid-cols-2 lg:grid-cols-4 gap-3">
 				<div class="stats bg-base-100 border border-base-300 shadow-sm">
 					<div class="stat px-4 py-3">
 						<div class="stat-title text-xs uppercase tracking-wide">Created</div>
@@ -118,6 +133,12 @@ templ PalletProgressFragment(summary Summary) {
 					<div class="stat px-4 py-3">
 						<div class="stat-title text-xs uppercase tracking-wide">Closed</div>
 						<div class="stat-value text-2xl">{ summary.ClosedCount }</div>
+					</div>
+				</div>
+				<div class="stats bg-base-100 border border-base-300 shadow-sm">
+					<div class="stat px-4 py-3">
+						<div class="stat-title text-xs uppercase tracking-wide">Cancelled</div>
+						<div class="stat-value text-2xl text-error">{ summary.CancelledCount }</div>
 					</div>
 				</div>
 			</section>
@@ -141,6 +162,8 @@ templ PalletProgressFragment(summary Summary) {
 									<th></th>
 									<th></th>
 									<th></th>
+									<th></th>
+									<th></th>
 								</tr>
 							</thead>
 							<tbody>
@@ -153,6 +176,11 @@ templ PalletProgressFragment(summary Summary) {
 										<td class="text-sm">{ p.ClosedAt }</td>
 										<td class="text-sm">{ p.ReopenedAt }</td>
 										<td>
+											if summary.IsAdmin {
+												<a class="btn btn-soft btn-secondary btn-sm" href={ fmt.Sprintf("/tasker/pallets/%d/label", p.ID) } target="_blank" rel="noopener">Reprint</a>
+											}
+										</td>
+										<td>
 											if summary.CanViewContent {
 												<a class="btn btn-soft btn-info btn-sm" href={ fmt.Sprintf("/tasker/pallets/%d/content-label", p.ID) }>View</a>
 											}
@@ -160,6 +188,13 @@ templ PalletProgressFragment(summary Summary) {
 										<td>
 											if summary.CanOpenReceipt {
 												<a class="btn btn-soft btn-primary btn-sm" href={ fmt.Sprintf("/tasker/pallets/%d/receipt", p.ID) }>Receipt</a>
+											}
+										</td>
+										<td>
+											if summary.CanManageLifecycle {
+												if p.CanCancel {
+													<button class="btn btn-soft btn-error btn-sm cancel-pallet-trigger" type="button" data-pallet-id={ fmt.Sprintf("%d", p.ID) }>Cancel</button>
+												}
 											}
 										</td>
 										<td>
@@ -205,11 +240,19 @@ templ PalletProgressFragment(summary Summary) {
 										}
 									</div>
 									<div class="card-actions mt-1">
+										if summary.IsAdmin {
+											<a class="btn btn-secondary btn-soft btn-sm flex-1" href={ fmt.Sprintf("/tasker/pallets/%d/label", p.ID) } target="_blank" rel="noopener">Reprint</a>
+										}
 										if summary.CanViewContent {
 											<a class="btn btn-info btn-soft btn-sm flex-1" href={ fmt.Sprintf("/tasker/pallets/%d/content-label", p.ID) }>View</a>
 										}
 										if summary.CanOpenReceipt {
 											<a class="btn btn-primary btn-sm flex-1" href={ fmt.Sprintf("/tasker/pallets/%d/receipt", p.ID) }>Receipt</a>
+										}
+										if summary.CanManageLifecycle {
+											if p.CanCancel {
+												<button class="btn btn-error btn-soft btn-sm flex-1 cancel-pallet-trigger" type="button" data-pallet-id={ fmt.Sprintf("%d", p.ID) }>Cancel</button>
+											}
 										}
 										if summary.CanManageLifecycle {
 											if p.CanClose {
@@ -229,8 +272,63 @@ templ PalletProgressFragment(summary Summary) {
 					</div>
 				</div>
 			</section>
-		</main>
-		@sharedhtml.DockWithRole(sharedhtml.NavProjects, summary.IsAdmin)
-		@templ.Raw(sharedhtml.CSRFFormScript())
-	</div>
+			</main>
+			<dialog id="cancel-pallet-modal" class="modal">
+				<div class="modal-box max-w-md">
+					<h3 class="text-lg font-semibold">Cancel pallet?</h3>
+					<p class="text-sm text-base-content/70 mt-2">This will set pallet <span id="cancel-pallet-code" class="font-mono font-semibold">P00000000</span> to cancelled.</p>
+					<p class="text-sm text-base-content/70">The pallet will remain viewable but receipt edits will be blocked.</p>
+					<div class="modal-action">
+						<button class="btn btn-ghost" type="button" onclick="closeCancelPalletModal()">Back</button>
+						<form id="cancel-pallet-form" method="post" action="">
+							<button class="btn btn-error" type="submit">Confirm Cancel</button>
+						</form>
+					</div>
+				</div>
+				<form method="dialog" class="modal-backdrop">
+					<button type="submit">close</button>
+				</form>
+			</dialog>
+			@sharedhtml.DockWithRole(sharedhtml.NavProjects, summary.IsAdmin)
+			@templ.Raw(sharedhtml.CSRFFormScript())
+			<script>
+				(function() {
+					function refs() {
+						return {
+							modal: document.getElementById('cancel-pallet-modal'),
+							form: document.getElementById('cancel-pallet-form'),
+							label: document.getElementById('cancel-pallet-code')
+						};
+					}
+
+		window.openCancelPalletModal = function(palletID) {
+			const r = refs();
+			if (!r.modal || !r.form) return;
+			r.form.action = '/tasker/api/pallets/' + palletID + '/cancel';
+			if (r.label) {
+				r.label.textContent = 'P' + String(palletID).padStart(8, '0');
+			}
+			r.modal.showModal();
+		};
+
+					window.closeCancelPalletModal = function() {
+						const r = refs();
+						if (r.modal && r.modal.open) r.modal.close();
+					};
+
+					if (!window.__cancelPalletClickBound) {
+						document.addEventListener('click', function(event) {
+							const btn = event.target.closest('.cancel-pallet-trigger');
+							if (!btn) return;
+							event.preventDefault();
+							const raw = (btn.getAttribute('data-pallet-id') || '').trim();
+							const palletID = parseInt(raw, 10);
+							if (!palletID || palletID < 1) return;
+							window.openCancelPalletModal(palletID);
+						});
+						window.__cancelPalletClickBound = true;
+					}
+				})();
+			</script>
+		</div>
 }

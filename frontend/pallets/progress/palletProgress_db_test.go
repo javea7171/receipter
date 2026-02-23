@@ -94,6 +94,37 @@ func TestUpdatePalletStatus_CloseAndReopenWritesAudit(t *testing.T) {
 	}
 }
 
+func TestUpdatePalletStatus_CancelWritesAudit(t *testing.T) {
+	db := openProgressTestDB(t)
+	seedLifecycleData(t, db)
+	auditSvc := audit.NewService()
+
+	if err := updatePalletStatus(context.Background(), db, auditSvc, 1, 1, 1, "cancelled"); err != nil {
+		t.Fatalf("cancel pallet: %v", err)
+	}
+
+	var status string
+	var auditCount int
+	err := db.WithReadTx(context.Background(), func(ctx context.Context, tx bun.Tx) error {
+		if err := tx.NewRaw(`SELECT status FROM pallets WHERE id = 1`).Scan(ctx, &status); err != nil {
+			return err
+		}
+		if err := tx.NewRaw(`SELECT COUNT(*) FROM audit_logs WHERE action = 'pallet.cancel' AND entity_type = 'pallets' AND entity_id = '1'`).Scan(ctx, &auditCount); err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("verify cancel: %v", err)
+	}
+	if status != "cancelled" {
+		t.Fatalf("expected cancelled status, got %s", status)
+	}
+	if auditCount != 1 {
+		t.Fatalf("expected 1 cancel audit row, got %d", auditCount)
+	}
+}
+
 func TestLoadSummary_StatusFilterAndCounts(t *testing.T) {
 	db := openProgressTestDB(t)
 
@@ -105,6 +136,9 @@ func TestLoadSummary_StatusFilterAndCounts(t *testing.T) {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO pallets (id, project_id, status, created_at) VALUES (3, 1, 'closed', CURRENT_TIMESTAMP)`); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO pallets (id, project_id, status, created_at) VALUES (4, 1, 'cancelled', CURRENT_TIMESTAMP)`); err != nil {
 			return err
 		}
 		return nil
@@ -144,6 +178,9 @@ func TestUpdatePalletStatus_InvalidTransitions(t *testing.T) {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO pallets (id, project_id, status, created_at) VALUES (3, 1, 'closed', CURRENT_TIMESTAMP)`); err != nil {
 			return err
 		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO pallets (id, project_id, status, created_at) VALUES (4, 1, 'cancelled', CURRENT_TIMESTAMP)`); err != nil {
+			return err
+		}
 		return nil
 	})
 	if err != nil {
@@ -159,6 +196,7 @@ func TestUpdatePalletStatus_InvalidTransitions(t *testing.T) {
 		{name: "created to closed", palletID: 1, toStatus: "closed", wantError: "pallet must be open to close"},
 		{name: "open to open", palletID: 2, toStatus: "open", wantError: "pallet must be closed to reopen"},
 		{name: "closed to closed", palletID: 3, toStatus: "closed", wantError: "pallet must be open to close"},
+		{name: "cancelled to cancelled", palletID: 4, toStatus: "cancelled", wantError: "pallet is already cancelled"},
 		{name: "invalid target", palletID: 2, toStatus: "invalid", wantError: "invalid pallet status transition"},
 	}
 
@@ -183,6 +221,7 @@ func TestNormalizeStatusFilter(t *testing.T) {
 		{in: "created", want: "created"},
 		{in: "OPEN", want: "open"},
 		{in: " closed ", want: "closed"},
+		{in: " cancelled ", want: "cancelled"},
 		{in: "", want: "all"},
 		{in: "unknown", want: "all"},
 	}

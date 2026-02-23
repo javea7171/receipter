@@ -44,7 +44,7 @@ CREATE TABLE IF NOT EXISTS stock_items (
 CREATE TABLE IF NOT EXISTS pallets (
     id INTEGER PRIMARY KEY,
     project_id INTEGER NOT NULL,
-    status TEXT NOT NULL CHECK (status IN ('created', 'open', 'closed')),
+    status TEXT NOT NULL CHECK (status IN ('created', 'open', 'closed', 'cancelled')),
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     closed_at DATETIME,
     reopened_at DATETIME,
@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS pallet_receipts (
     stock_item_id INTEGER NOT NULL,
     scanned_by_user_id INTEGER NOT NULL,
     qty INTEGER NOT NULL CHECK (qty > 0),
+    case_size INTEGER NOT NULL DEFAULT 1 CHECK (case_size > 0),
     damaged BOOLEAN NOT NULL DEFAULT 0,
     damaged_qty INTEGER NOT NULL DEFAULT 0 CHECK (damaged_qty >= 0 AND damaged_qty <= qty),
     batch_number TEXT,

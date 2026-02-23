@@ -1,9 +1,12 @@
 package exports
 
 import (
+	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 
@@ -14,15 +17,32 @@ import (
 
 func ExportsPageQueryHandler(db *sqlite.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		projectID, ok := activeProjectIDFromContext(r)
-		if !ok {
-			http.Redirect(w, r, "/tasker/projects?status=Select+a+project+first", http.StatusSeeOther)
+		projectID, err := requestedProjectID(r)
+		if err != nil {
+			http.Redirect(w, r, "/tasker/projects?status="+url.QueryEscape("Invalid project id"), http.StatusSeeOther)
+			return
+		}
+		if projectID <= 0 {
+			http.Redirect(w, r, "/tasker/projects?status="+url.QueryEscape("Select a project first"), http.StatusSeeOther)
 			return
 		}
 		project, err := projectinfra.LoadByID(r.Context(), db, projectID)
 		if err != nil {
-			http.Redirect(w, r, "/tasker/projects?status=Active+project+not+found", http.StatusSeeOther)
+			http.Redirect(w, r, "/tasker/projects?status="+url.QueryEscape("Selected project not found"), http.StatusSeeOther)
 			return
+		}
+		projects, err := projectinfra.List(r.Context(), db, "all")
+		if err != nil {
+			http.Error(w, "failed to load projects", http.StatusInternalServerError)
+			return
+		}
+		options := make([]ProjectOption, 0, len(projects))
+		for _, p := range projects {
+			options = append(options, ProjectOption{
+				ID:       p.ID,
+				Label:    fmt.Sprintf("%s (%s) - %s - %s", p.Name, p.ClientName, p.ProjectDate.Format("02/01/2006"), p.Status),
+				Selected: p.ID == projectID,
+			})
 		}
 
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -31,6 +51,7 @@ func ExportsPageQueryHandler(db *sqlite.DB) http.HandlerFunc {
 			ProjectName:   project.Name,
 			ClientName:    project.ClientName,
 			ProjectStatus: project.Status,
+			Projects:      options,
 		}).Render(r.Context(), w); err != nil {
 			http.Error(w, "failed to render exports page", http.StatusInternalServerError)
 			return
@@ -40,9 +61,13 @@ func ExportsPageQueryHandler(db *sqlite.DB) http.HandlerFunc {
 
 func PalletExportCSVHandler(db *sqlite.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		projectID, ok := activeProjectIDFromContext(r)
-		if !ok {
-			http.Error(w, "no active project selected", http.StatusForbidden)
+		projectID, err := requestedProjectID(r)
+		if err != nil {
+			http.Error(w, "invalid project id", http.StatusBadRequest)
+			return
+		}
+		if projectID <= 0 {
+			http.Error(w, "no project selected", http.StatusForbidden)
 			return
 		}
 		id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
@@ -73,9 +98,13 @@ func PalletExportCSVHandler(db *sqlite.DB) http.HandlerFunc {
 
 func ReceiptsExportCSVHandler(db *sqlite.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		projectID, ok := activeProjectIDFromContext(r)
-		if !ok {
-			http.Error(w, "no active project selected", http.StatusForbidden)
+		projectID, err := requestedProjectID(r)
+		if err != nil {
+			http.Error(w, "invalid project id", http.StatusBadRequest)
+			return
+		}
+		if projectID <= 0 {
+			http.Error(w, "no project selected", http.StatusForbidden)
 			return
 		}
 		w.Header().Set("Content-Type", "text/csv")
@@ -92,9 +121,13 @@ func ReceiptsExportCSVHandler(db *sqlite.DB) http.HandlerFunc {
 
 func PalletStatusCSVHandler(db *sqlite.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		projectID, ok := activeProjectIDFromContext(r)
-		if !ok {
-			http.Error(w, "no active project selected", http.StatusForbidden)
+		projectID, err := requestedProjectID(r)
+		if err != nil {
+			http.Error(w, "invalid project id", http.StatusBadRequest)
+			return
+		}
+		if projectID <= 0 {
+			http.Error(w, "no project selected", http.StatusForbidden)
 			return
 		}
 		w.Header().Set("Content-Type", "text/csv")
@@ -128,4 +161,31 @@ func activeProjectIDFromContext(r *http.Request) (int64, bool) {
 
 func int64Ptr(v int64) *int64 {
 	return &v
+}
+
+func requestedProjectID(r *http.Request) (int64, error) {
+	projectID, explicit, err := queryProjectID(r)
+	if err != nil {
+		return 0, err
+	}
+	if explicit {
+		return projectID, nil
+	}
+	projectID, ok := activeProjectIDFromContext(r)
+	if !ok {
+		return 0, nil
+	}
+	return projectID, nil
+}
+
+func queryProjectID(r *http.Request) (int64, bool, error) {
+	raw := strings.TrimSpace(r.URL.Query().Get("project_id"))
+	if raw == "" {
+		return 0, false, nil
+	}
+	projectID, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || projectID <= 0 {
+		return 0, true, fmt.Errorf("invalid project id")
+	}
+	return projectID, true, nil
 }

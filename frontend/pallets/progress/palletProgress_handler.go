@@ -103,6 +103,26 @@ func ReopenPalletCommandHandler(db *sqlite.DB, auditSvc *audit.Service) http.Han
 	}
 }
 
+func CancelPalletCommandHandler(db *sqlite.DB, auditSvc *audit.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		palletID, err := parsePalletID(r)
+		if err != nil {
+			http.Error(w, "invalid pallet id", http.StatusBadRequest)
+			return
+		}
+		session, _ := sessioncontext.GetSessionFromContext(r.Context())
+		if session.ActiveProjectID == nil || *session.ActiveProjectID <= 0 {
+			http.Error(w, "no active project selected", http.StatusForbidden)
+			return
+		}
+		if err := updatePalletStatus(r.Context(), db, auditSvc, session.UserID, *session.ActiveProjectID, palletID, "cancelled"); err != nil {
+			http.Error(w, "failed to cancel pallet", http.StatusInternalServerError)
+			return
+		}
+		http.Redirect(w, r, "/tasker/pallets/progress", http.StatusSeeOther)
+	}
+}
+
 func parsePalletID(r *http.Request) (int64, error) {
 	return strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 }

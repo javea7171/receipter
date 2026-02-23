@@ -23,9 +23,24 @@ templ StockImportPage(data PageData) {
 			<main class="container-shell space-y-4">
 				<section class="page-card">
 					<div class="page-card-body space-y-4">
-						<div>
-							<h1 class="text-xl font-bold">Stock Imports</h1>
-							<p class="text-sm text-base-content/60 mt-1">Project: { data.ProjectName } ({ data.ClientName })</p>
+						<div class="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+							<div>
+								<h1 class="text-xl font-bold">Stock Imports</h1>
+								<p class="text-sm text-base-content/60 mt-1">Project: { data.ProjectName } ({ data.ClientName })</p>
+							</div>
+							if len(data.Projects) > 0 {
+								<form method="get" action="/tasker/stock/import" class="flex items-end gap-2">
+									<fieldset class="fieldset">
+										<legend class="fieldset-legend text-xs uppercase tracking-wide">Project</legend>
+										<select class="select select-bordered select-sm w-72 max-w-full" name="project_id">
+											for _, p := range data.Projects {
+												<option value={ fmt.Sprintf("%d", p.ID) } selected?={ p.Selected }>{ p.Label }</option>
+											}
+										</select>
+									</fieldset>
+									<button class="btn btn-outline btn-sm" type="submit">Load</button>
+								</form>
+							}
 						</div>
 						if !canModifyStock(data.ProjectStatus) {
 							<div role="alert" class="alert alert-warning alert-soft">
@@ -37,11 +52,11 @@ templ StockImportPage(data PageData) {
 								<span>{ data.Message }</span>
 							</div>
 						}
-						<form method="post" action="/tasker/stock/import" enctype="multipart/form-data" class="space-y-4">
-							<fieldset class="fieldset w-full">
-								<legend class="fieldset-legend text-base font-medium">CSV file</legend>
-								<p class="text-xs text-base-content/70">Required header row: <span class="font-mono">sku,description</span></p>
-									<input class="file-input file-input-bordered file-input-lg w-full" type="file" name="file" accept=".csv" disabled?={ !canModifyStock(data.ProjectStatus) }/>
+							<form method="post" action={ fmt.Sprintf("/tasker/stock/import?project_id=%d", data.ProjectID) } enctype="multipart/form-data" class="space-y-4">
+								<fieldset class="fieldset w-full">
+									<legend class="fieldset-legend text-base font-medium">CSV file</legend>
+									<p class="text-xs text-base-content/70">Required header row: <span class="font-mono">sku,description</span></p>
+										<input class="file-input file-input-bordered file-input-lg w-full" type="file" name="file" accept=".csv" disabled?={ !canModifyStock(data.ProjectStatus) }/>
 								</fieldset>
 								<button class="btn btn-primary btn-lg w-full" type="submit" disabled?={ !canModifyStock(data.ProjectStatus) }>
 								<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="size-5">
@@ -64,7 +79,7 @@ templ StockImportPage(data PageData) {
 								<span>No stock records imported yet.</span>
 							</div>
 						} else {
-							<form method="post" action="/tasker/stock/delete" class="space-y-3">
+								<form method="post" action={ fmt.Sprintf("/tasker/stock/delete?project_id=%d", data.ProjectID) } class="space-y-3">
 								<div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
 									<label class="label cursor-pointer justify-start gap-2 p-0">
 										<input id="select-all-stock" class="checkbox checkbox-sm" type="checkbox"/>
@@ -95,13 +110,13 @@ templ StockImportPage(data PageData) {
 													<td class="text-sm">{ record.CreatedAt }</td>
 													<td class="text-sm">{ record.UpdatedAt }</td>
 													<td class="text-right">
-														<button
-															class="btn btn-error btn-soft btn-xs"
-															type="submit"
-															formaction={ fmt.Sprintf("/tasker/stock/delete/%d", record.ID) }
-															formmethod="post"
-															disabled?={ !canModifyStock(data.ProjectStatus) }
-															onclick="return confirm('Delete this stock record?')">Delete</button>
+															<button
+																class="btn btn-error btn-soft btn-xs"
+																type="submit"
+																formaction={ fmt.Sprintf("/tasker/stock/delete/%d?project_id=%d", record.ID, data.ProjectID) }
+																formmethod="post"
+																disabled?={ !canModifyStock(data.ProjectStatus) }
+																onclick="return confirm('Delete this stock record?')">Delete</button>
 													</td>
 												</tr>
 											}

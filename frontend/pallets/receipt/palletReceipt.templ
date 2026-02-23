@@ -86,6 +86,7 @@ templ PalletReceiptPage(data PageData) {
 											<th>SKU</th>
 											<th>Description</th>
 											<th>Qty</th>
+											<th>Case Size</th>
 											<th>Damaged</th>
 											<th>Batch</th>
 											<th>Expiry</th>
@@ -94,13 +95,14 @@ templ PalletReceiptPage(data PageData) {
 									</thead>
 									<tbody>
 										for _, line := range data.Lines {
-											<tr>
-												<td class="font-mono font-semibold">{ line.SKU }</td>
-												<td>{ line.Description }</td>
-												<td class="font-medium">{ line.Qty }</td>
-												<td>
-													if line.Damaged {
-														<span class="badge badge-warning">Yes ({ line.DamagedQty })</span>
+												<tr>
+													<td class="font-mono font-semibold">{ line.SKU }</td>
+													<td>{ line.Description }</td>
+													<td class="font-medium">{ line.Qty }</td>
+													<td class="font-medium">{ line.CaseSize }</td>
+													<td>
+														if line.Damaged {
+															<span class="badge badge-warning">Yes ({ line.DamagedQty })</span>
 													} else {
 														<span class="badge badge-success badge-soft">No</span>
 													}
@@ -141,11 +143,13 @@ templ PalletReceiptPage(data PageData) {
 												</div>
 												<span class="badge badge-neutral shrink-0">Qty { fmt.Sprintf("%d", line.Qty) }</span>
 											</div>
-											<div class="grid grid-cols-2 gap-x-4 gap-y-1 text-sm mt-1">
-												<div class="text-base-content/60">Batch</div>
-												<div>{ line.BatchNumber }</div>
-												<div class="text-base-content/60">Expiry</div>
-												<div>{ line.ExpiryDateUK }</div>
+												<div class="grid grid-cols-2 gap-x-4 gap-y-1 text-sm mt-1">
+													<div class="text-base-content/60">Batch</div>
+													<div>{ line.BatchNumber }</div>
+													<div class="text-base-content/60">Case Size</div>
+													<div>{ line.CaseSize }</div>
+													<div class="text-base-content/60">Expiry</div>
+													<div>{ line.ExpiryDateUK }</div>
 												<div class="text-base-content/60">Damaged</div>
 												<div>
 													if line.Damaged {
@@ -193,13 +197,17 @@ templ ReceiptFormFields(canEdit bool) {
 			<legend class="fieldset-legend text-base font-medium">Description</legend>
 			<input class="input input-bordered input-lg w-full" name="description" disabled?={ !canEdit } placeholder="Product description"/>
 		</fieldset>
-		<fieldset class="fieldset w-full">
-			<legend class="fieldset-legend text-base font-medium">Qty</legend>
-			<input class="input input-bordered input-lg w-full" type="number" name="qty" min="1" required disabled?={ !canEdit } placeholder="0"/>
-		</fieldset>
-		<fieldset class="fieldset w-full">
-			<legend class="fieldset-legend text-base font-medium">Batch</legend>
-			<input class="input input-bordered input-lg w-full" name="batch_number" disabled?={ !canEdit } placeholder="Batch number"/>
+			<fieldset class="fieldset w-full">
+				<legend class="fieldset-legend text-base font-medium">Qty</legend>
+				<input class="input input-bordered input-lg w-full" type="number" name="qty" min="1" required disabled?={ !canEdit } placeholder="0"/>
+			</fieldset>
+			<fieldset class="fieldset w-full">
+				<legend class="fieldset-legend text-base font-medium">Case Size</legend>
+				<input class="input input-bordered input-lg w-full" type="number" name="case_size" min="1" required value="1" disabled?={ !canEdit } placeholder="Units per case"/>
+			</fieldset>
+			<fieldset class="fieldset w-full">
+				<legend class="fieldset-legend text-base font-medium">Batch</legend>
+				<input class="input input-bordered input-lg w-full" name="batch_number" disabled?={ !canEdit } placeholder="Batch number"/>
 		</fieldset>
 		<fieldset class="fieldset w-full">
 			<legend class="fieldset-legend text-base font-medium">Expiry</legend>

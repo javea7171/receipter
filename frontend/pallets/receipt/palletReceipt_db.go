@@ -22,6 +22,7 @@ func LoadPageData(ctx context.Context, db *sqlite.DB, palletID int64) (PageData,
 		SKU            string `bun:"sku"`
 		Description    string `bun:"description"`
 		Qty            int64  `bun:"qty"`
+		CaseSize       int64  `bun:"case_size"`
 		Damaged        bool   `bun:"damaged"`
 		DamagedQty     int64  `bun:"damaged_qty"`
 		BatchNumber    string `bun:"batch_number"`
@@ -43,7 +44,7 @@ WHERE p.id = ?`, palletID).Scan(ctx, &data.PalletStatus, &data.ProjectID, &data.
 			return err
 		}
 		if err := tx.NewRaw(`
-SELECT pr.id, si.sku, si.description, pr.qty, pr.damaged, pr.damaged_qty, COALESCE(pr.batch_number, '') AS batch_number,
+SELECT pr.id, si.sku, si.description, pr.qty, pr.case_size, pr.damaged, pr.damaged_qty, COALESCE(pr.batch_number, '') AS batch_number,
        strftime('%d/%m/%Y', pr.expiry_date) AS expiry_date,
        COALESCE(pr.carton_barcode, '') AS carton_barcode,
        COALESCE(pr.item_barcode, '') AS item_barcode,
@@ -98,6 +99,7 @@ ORDER BY pr.id DESC`, palletID, data.ProjectID).Scan(ctx, &lines); err != nil {
 			SKU:             line.SKU,
 			Description:     line.Description,
 			Qty:             line.Qty,
+			CaseSize:        line.CaseSize,
 			Damaged:         line.Damaged,
 			DamagedQty:      line.DamagedQty,
 			BatchNumber:     line.BatchNumber,
@@ -148,6 +150,9 @@ func SaveReceipt(ctx context.Context, db *sqlite.DB, auditSvc *audit.Service, us
 	if userID <= 0 {
 		return fmt.Errorf("invalid user id")
 	}
+	if input.CaseSize <= 0 {
+		input.CaseSize = 1
+	}
 
 	return db.WithWriteTx(ctx, func(ctx context.Context, tx bun.Tx) error {
 		var palletStatus string
@@ -163,7 +168,10 @@ WHERE p.id = ?`, input.PalletID).Scan(ctx, &palletStatus, &projectID, &projectSt
 		if projectStatus != "active" {
 			return fmt.Errorf("inactive projects are read-only")
 		}
-		if palletStatus != "created" && palletStatus != "open" && palletStatus != "closed" {
+		if palletStatus == "cancelled" {
+			return fmt.Errorf("cancelled pallets are read-only")
+		}
+		if palletStatus != "created" && palletStatus != "open" && palletStatus != "closed" && palletStatus != "cancelled" {
 			return fmt.Errorf("invalid pallet status: %s", palletStatus)
 		}
 
@@ -184,6 +192,7 @@ WHERE p.id = ?`, input.PalletID).Scan(ctx, &palletStatus, &projectID, &projectSt
 			Where("project_id = ?", projectID).
 			Where("pallet_id = ?", input.PalletID).
 			Where("stock_item_id = ?", stock.ID).
+			Where("case_size = ?", input.CaseSize).
 			Where("COALESCE(batch_number, '') = COALESCE(?, '')", input.BatchNumber).
 			Where("date(expiry_date) = date(?)", input.ExpiryDate.Format("2006-01-02")).
 			Limit(1).
@@ -230,6 +239,7 @@ WHERE p.id = ?`, input.PalletID).Scan(ctx, &palletStatus, &projectID, &projectSt
 			StockItemID:     stock.ID,
 			ScannedByUserID: userID,
 			Qty:             input.Qty,
+			CaseSize:        input.CaseSize,
 			Damaged:         input.Damaged || input.DamagedQty > 0,
 			DamagedQty:      input.DamagedQty,
 			BatchNumber:     input.BatchNumber,
