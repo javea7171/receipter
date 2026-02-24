@@ -110,7 +110,7 @@ func SKUViewPage(data SKUSummaryPageData) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<main class=\"container-shell space-y-4\"><div class=\"page-header\"><div><h1 class=\"text-xl font-bold sm:text-2xl\">SKU View</h1><p class=\"text-sm text-base-content/60\">Project: ")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<main class=\"container-shell-wide space-y-4\"><div class=\"page-header\"><div><h1 class=\"text-xl font-bold sm:text-2xl\">SKU View</h1><p class=\"text-sm text-base-content/60\">Project: ")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -743,7 +743,7 @@ func SKUDetailPage(data SKUDetailedPageData) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 74, "<main class=\"container-shell space-y-4\"><div class=\"page-header\"><div><h1 class=\"text-xl font-bold sm:text-2xl\">SKU Detail</h1><p class=\"text-sm text-base-content/60\"><span class=\"font-mono\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 74, "<main class=\"container-shell-wide space-y-4\"><div class=\"page-header\"><div><h1 class=\"text-xl font-bold sm:text-2xl\">SKU Detail</h1><p class=\"text-sm text-base-content/60\"><span class=\"font-mono\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

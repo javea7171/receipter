@@ -110,6 +110,19 @@ func contentFilterWhereClause(filter string) string {
 	}
 }
 
+func contentClientCommentMatchExists(receiptAlias string) string {
+	return "EXISTS (" +
+		"SELECT 1 FROM sku_client_comments scc " +
+		"WHERE scc.project_id = " + receiptAlias + ".project_id " +
+		"AND scc.pallet_id = " + receiptAlias + ".pallet_id " +
+		"AND scc.sku = " + receiptAlias + ".sku " +
+		"AND COALESCE(scc.uom, '') = COALESCE(" + receiptAlias + ".uom, '') " +
+		"AND COALESCE(scc.batch_number, '') = COALESCE(" + receiptAlias + ".batch_number, '') " +
+		"AND ((scc.expiry_date IS NULL AND " + receiptAlias + ".expiry_date IS NULL) " +
+		"OR (scc.expiry_date IS NOT NULL AND " + receiptAlias + ".expiry_date IS NOT NULL " +
+		"AND date(scc.expiry_date) = date(" + receiptAlias + ".expiry_date))))"
+}
+
 func LoadPalletContent(ctx context.Context, db *sqlite.DB, id int64, filter string) (models.Pallet, []ContentLine, error) {
 	var pallet models.Pallet
 	lines := make([]ContentLine, 0)
@@ -127,6 +140,7 @@ SELECT pr.id, pr.sku, pr.description, COALESCE(pr.uom, '') AS uom, COALESCE(pr.c
          WHEN EXISTS (SELECT 1 FROM receipt_photos rp WHERE rp.pallet_receipt_id = pr.id) THEN 1
          ELSE 0
        END AS has_photos,
+       CASE WHEN `+contentClientCommentMatchExists("pr")+` THEN 1 ELSE 0 END AS has_client_comments,
        pr.qty, pr.case_size, pr.unknown_sku, pr.damaged,
        COALESCE(pr.batch_number, '') AS batch_number,
        COALESCE(strftime('%d/%m/%Y', pr.expiry_date), '') AS expiry_date,
@@ -143,9 +157,10 @@ ORDER BY pr.sku ASC, pr.id ASC`, id).Scan(ctx, &lines)
 func LoadPalletContentLineDetail(ctx context.Context, db *sqlite.DB, palletID, receiptID int64) (models.Pallet, ContentLineDetail, error) {
 	var pallet models.Pallet
 	detail := ContentLineDetail{
-		ID:       receiptID,
-		PalletID: palletID,
-		PhotoIDs: make([]int64, 0),
+		ID:             receiptID,
+		PalletID:       palletID,
+		PhotoIDs:       make([]int64, 0),
+		ClientComments: make([]ContentLineClientComment, 0),
 	}
 	err := db.WithReadTx(ctx, func(ctx context.Context, tx bun.Tx) error {
 		var err error
@@ -166,6 +181,7 @@ func LoadPalletContentLineDetail(ctx context.Context, db *sqlite.DB, palletID, r
 			Damaged         bool   `bun:"damaged"`
 			BatchNumber     string `bun:"batch_number"`
 			ExpiryDateUK    string `bun:"expiry_date"`
+			ExpiryDateISO   string `bun:"expiry_date_iso"`
 			Expired         bool   `bun:"expired"`
 			ScannedBy       string `bun:"scanned_by"`
 			HasPrimaryPhoto bool   `bun:"has_primary_photo"`
@@ -174,6 +190,7 @@ func LoadPalletContentLineDetail(ctx context.Context, db *sqlite.DB, palletID, r
 SELECT pr.id, pr.sku, pr.description, COALESCE(pr.uom, '') AS uom, COALESCE(pr.comment, '') AS comment, pr.qty, pr.case_size, pr.unknown_sku, pr.damaged,
        COALESCE(pr.batch_number, '') AS batch_number,
        COALESCE(strftime('%d/%m/%Y', pr.expiry_date), '') AS expiry_date,
+       COALESCE(strftime('%Y-%m-%d', pr.expiry_date), '') AS expiry_date_iso,
        CASE WHEN pr.expiry_date IS NOT NULL AND date(pr.expiry_date) < date('now') THEN 1 ELSE 0 END AS expired,
        COALESCE(u.username, '') AS scanned_by,
        CASE WHEN pr.stock_photo_blob IS NOT NULL AND length(pr.stock_photo_blob) > 0 THEN 1 ELSE 0 END AS has_primary_photo
@@ -205,6 +222,42 @@ LIMIT 1`, receiptID, palletID, pallet.ProjectID).Scan(ctx, &row); err != nil {
 			return err
 		}
 		detail.PhotoIDs = photoIDs
+
+		commentRows := make([]ContentLineClientComment, 0)
+		if strings.TrimSpace(row.ExpiryDateISO) == "" {
+			if err := tx.NewRaw(`
+SELECT COALESCE(TRIM(scc.comment), '') AS comment,
+       COALESCE(u.username, '') AS actor,
+       COALESCE(strftime('%d/%m/%Y %H:%M', scc.created_at), '') AS created_at_uk
+FROM sku_client_comments scc
+LEFT JOIN users u ON u.id = scc.created_by_user_id
+WHERE scc.project_id = ?
+  AND scc.pallet_id = ?
+  AND scc.sku = ?
+  AND COALESCE(scc.uom, '') = ?
+  AND COALESCE(scc.batch_number, '') = ?
+  AND scc.expiry_date IS NULL
+ORDER BY scc.created_at DESC, scc.id DESC`, pallet.ProjectID, palletID, row.SKU, row.UOM, row.BatchNumber).Scan(ctx, &commentRows); err != nil {
+				return err
+			}
+		} else {
+			if err := tx.NewRaw(`
+SELECT COALESCE(TRIM(scc.comment), '') AS comment,
+       COALESCE(u.username, '') AS actor,
+       COALESCE(strftime('%d/%m/%Y %H:%M', scc.created_at), '') AS created_at_uk
+FROM sku_client_comments scc
+LEFT JOIN users u ON u.id = scc.created_by_user_id
+WHERE scc.project_id = ?
+  AND scc.pallet_id = ?
+  AND scc.sku = ?
+  AND COALESCE(scc.uom, '') = ?
+  AND COALESCE(scc.batch_number, '') = ?
+  AND date(scc.expiry_date) = date(?)
+ORDER BY scc.created_at DESC, scc.id DESC`, pallet.ProjectID, palletID, row.SKU, row.UOM, row.BatchNumber, row.ExpiryDateISO).Scan(ctx, &commentRows); err != nil {
+				return err
+			}
+		}
+		detail.ClientComments = commentRows
 		return nil
 	})
 	return pallet, detail, err

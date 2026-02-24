@@ -97,7 +97,7 @@ templ PalletContentLabelFragment(palletID int64, projectID int64, status string,
 		data-signals:lastScrollY="0"
 		data-on:datastar-fetch="evt.detail.type === 'started' && ($lastScrollY = window.scrollY); evt.detail.type === 'finished' && requestAnimationFrame(() => window.scrollTo(0, $lastScrollY));"
 		data-on-interval__duration.3s={ contentAutoRefreshExpr(palletID, filter) }>
-		<main class="container-shell space-y-4">
+		<main class="container-shell-wide space-y-4">
 			<div class="page-header">
 				<div>
 					<h1 class="text-xl font-bold sm:text-2xl">Pallet { palletID } Contents</h1>
@@ -136,6 +136,7 @@ templ PalletContentLabelFragment(palletID int64, projectID int64, status string,
 									<th>Description</th>
 									<th>UOM</th>
 									<th>Comment</th>
+									<th>Client Comment</th>
 									<th>Photo</th>
 									<th>Qty</th>
 									<th>Case Size</th>
@@ -151,7 +152,7 @@ templ PalletContentLabelFragment(palletID int64, projectID int64, status string,
 								<tbody>
 									if len(lines) == 0 {
 										<tr>
-										<td colspan="14" class="text-base-content/60">No receipt lines for this filter.</td>
+										<td colspan="15" class="text-base-content/60">No receipt lines for this filter.</td>
 										</tr>
 									}
 									for _, line := range lines {
@@ -166,6 +167,13 @@ templ PalletContentLabelFragment(palletID int64, projectID int64, status string,
 														<path stroke-linecap="round" stroke-linejoin="round" d="M8.625 9.75a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m0 0h3.375m-3.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m0 0h3.375M3.75 6.75A2.25 2.25 0 0 1 6 4.5h12a2.25 2.25 0 0 1 2.25 2.25v8.25A2.25 2.25 0 0 1 18 17.25H9l-4.5 2.25V6.75Z"/>
 													</svg>
 												</span>
+											} else {
+												<span class="text-base-content/30">--</span>
+											}
+										</td>
+										<td>
+											if line.HasClientComments {
+												<span class="badge badge-info badge-sm">Yes</span>
 											} else {
 												<span class="text-base-content/30">--</span>
 											}
@@ -221,6 +229,14 @@ templ PalletContentLabelFragment(palletID int64, projectID int64, status string,
 												</span>
 											} else {
 												<span class="text-base-content/30">--</span>
+											}
+										</div>
+										<div class="text-base-content/60">Client Comment</div>
+										<div>
+											if line.HasClientComments {
+												<span class="text-info">Yes</span>
+											} else {
+												No
 											}
 										</div>
 										<div class="text-base-content/60">Photo</div>
@@ -326,7 +342,7 @@ templ PalletContentLineDetailPage(palletID int64, status string, filter string, 
 			<link rel="stylesheet" href="/assets/app.css"/>
 		</head>
 		<body>
-			<main class="container-shell space-y-4">
+			<main class="container-shell-wide space-y-4">
 				<div class="page-header">
 					<div>
 						<h1 class="text-xl font-bold sm:text-2xl">Line Detail</h1>
@@ -373,6 +389,24 @@ templ PalletContentLineDetailPage(palletID int64, status string, filter string, 
 							<p class="text-base-content/60">No comment for this line.</p>
 						} else {
 							<div class="rounded border border-base-300 p-3 whitespace-pre-wrap break-words">{ line.Comment }</div>
+						}
+					</div>
+				</section>
+
+				<section class="page-card">
+					<div class="page-card-body space-y-2">
+						<h2 class="section-title">Client Comments</h2>
+						if len(line.ClientComments) == 0 {
+							<p class="text-base-content/60">No client comments for this line.</p>
+						} else {
+							<div class="space-y-2">
+								for _, c := range line.ClientComments {
+									<div class="rounded border border-base-300 p-3">
+										<div class="whitespace-pre-wrap break-words text-sm">{ c.Comment }</div>
+										<div class="text-xs text-base-content/60 mt-1">{ c.Actor } | { c.CreatedAtUK }</div>
+									</div>
+								}
+							</div>
 						}
 					</div>
 				</section>
