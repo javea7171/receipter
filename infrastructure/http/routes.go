@@ -5,6 +5,7 @@ import (
 
 	adminusers "receipter/frontend/adminUsers"
 	exportspage "receipter/frontend/exports"
+	helppage "receipter/frontend/help"
 	"receipter/frontend/login"
 	palletlabels "receipter/frontend/pallets/labels"
 	palletprogress "receipter/frontend/pallets/progress"
@@ -51,6 +52,11 @@ func (s *Server) RegisterFrontendRoutes(r chi.Router) chi.Router {
 	s.RegisterPalletRoutes(r)
 	s.RegisterStockRoutes(r)
 	s.RegisterExportRoutes(r)
+
+	s.Rbac.Add(rbac.RoleAdmin, "HELP_VIEW", http.MethodGet, "/tasker/help")
+	s.Rbac.Add(rbac.RoleScanner, "HELP_VIEW", http.MethodGet, "/tasker/help")
+	s.Rbac.Add(rbac.RoleClient, "HELP_VIEW", http.MethodGet, "/tasker/help")
+	r.Get("/help", helppage.HelpPageQueryHandler())
 
 	s.Rbac.Add(rbac.RoleAdmin, "SETTINGS_NOTIFICATIONS_VIEW", http.MethodGet, "/tasker/settings/notifications")
 	r.Get("/settings/notifications", settings.NotificationSettingsPageHandler(s.DB))
@@ -119,6 +125,7 @@ func (s *Server) RegisterPalletRoutes(r chi.Router) {
 	r.Get("/api/pallets/{id}/receipts/{receiptID}/photos/{photoID}", palletreceipt.ReceiptPhotosHandler(s.DB))
 
 	s.Rbac.Add(rbac.RoleAdmin, "PALLET_CLOSE", http.MethodPost, "/tasker/api/pallets/*/close")
+	s.Rbac.Add(rbac.RoleScanner, "PALLET_CLOSE", http.MethodPost, "/tasker/api/pallets/*/close")
 	r.Post("/api/pallets/{id}/close", palletprogress.ClosePalletCommandHandler(s.DB, s.Audit))
 
 	s.Rbac.Add(rbac.RoleAdmin, "PALLET_REOPEN", http.MethodPost, "/tasker/api/pallets/*/reopen")

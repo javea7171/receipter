@@ -8,6 +8,7 @@ const (
 	NavScan     ActiveNav = "scan"
 	NavProjects ActiveNav = "projects"
 	NavSKU      ActiveNav = "sku"
+	NavHelp     ActiveNav = "help"
 	NavImports  ActiveNav = "imports"
 	NavExports  ActiveNav = "exports"
 	NavSettings ActiveNav = "settings"
@@ -49,6 +50,12 @@ templ DockWithRole(active ActiveNav, showAdminLinks bool) {
 			</svg>
 			<span class="dock-label">Scan</span>
 		</a>
+		<a href="/tasker/help" class={ dockActive(active, NavHelp) }>
+			<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6">
+				<path stroke-linecap="round" stroke-linejoin="round" d="M11.25 9a1.5 1.5 0 1 1 2.568 1.05c-.523.527-1.068.992-1.068 1.95v.75m-.75 3h.008v.008H12v-.008Zm9-3.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/>
+			</svg>
+			<span class="dock-label">Help</span>
+		</a>
 		if showAdminLinks {
 			<a href="/tasker/stock/import" class={ dockActive(active, NavImports) }>
 				<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6">
@@ -81,6 +88,12 @@ templ DockClient(active ActiveNav) {
 			</svg>
 			<span class="dock-label">SKU View</span>
 		</a>
+		<a href="/tasker/help" class={ dockActive(active, NavHelp) }>
+			<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6">
+				<path stroke-linecap="round" stroke-linejoin="round" d="M11.25 9a1.5 1.5 0 1 1 2.568 1.05c-.523.527-1.068.992-1.068 1.95v.75m-.75 3h.008v.008H12v-.008Zm9-3.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/>
+			</svg>
+			<span class="dock-label">Help</span>
+		</a>
 	</div>
 }
 
@@ -93,14 +106,15 @@ templ TopBarWithRole(title string, showAdminLinks bool) {
 		<div class="navbar-start">
 			<a href={ topBarHomeHref(showAdminLinks) } class="btn btn-ghost text-lg font-bold tracking-tight">Receipter</a>
 		</div>
-		<div class="navbar-center hidden lg:flex">
-			<ul class="menu menu-horizontal gap-1">
-				<li><a href="/tasker/projects">Projects</a></li>
-				<li><a href="/tasker/scan/pallet">Scan</a></li>
-				if showAdminLinks {
-					<li><a href="/tasker/stock/import">Imports</a></li>
-					<li><a href="/tasker/exports">Exports</a></li>
-					<li><a href="/tasker/settings/notifications">Settings</a></li>
+			<div class="navbar-center hidden lg:flex">
+				<ul class="menu menu-horizontal gap-1">
+					<li><a href="/tasker/projects">Projects</a></li>
+					<li><a href="/tasker/scan/pallet">Scan</a></li>
+					<li><a href="/tasker/help">Help</a></li>
+					if showAdminLinks {
+						<li><a href="/tasker/stock/import">Imports</a></li>
+						<li><a href="/tasker/exports">Exports</a></li>
+						<li><a href="/tasker/settings/notifications">Settings</a></li>
 					<li><a href="/tasker/admin/users">Users</a></li>
 				}
 			</ul>
@@ -121,11 +135,12 @@ templ TopBarClient(title string) {
 		<div class="navbar-start">
 			<a href={ topBarClientHomeHref() } class="btn btn-ghost text-lg font-bold tracking-tight">Receipter</a>
 		</div>
-		<div class="navbar-center hidden lg:flex">
-			<ul class="menu menu-horizontal gap-1">
-				<li><a href="/tasker/pallets/sku-view">SKU View</a></li>
-			</ul>
-		</div>
+			<div class="navbar-center hidden lg:flex">
+				<ul class="menu menu-horizontal gap-1">
+					<li><a href="/tasker/pallets/sku-view">SKU View</a></li>
+					<li><a href="/tasker/help">Help</a></li>
+				</ul>
+			</div>
 		<div class="navbar-end">
 			<form method="post" action="/logout">
 				<button class="btn btn-ghost btn-sm" type="submit">Logout</button>

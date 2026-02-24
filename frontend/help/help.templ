@@ -1,0 +1,77 @@
+package help
+
+import sharedhtml "receipter/frontend/shared/html"
+
+templ HelpPage(data PageData) {
+	<!doctype html>
+	<html data-theme="light">
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+			<title>Help</title>
+			<link rel="stylesheet" href="/assets/app.css"/>
+		</head>
+		<body>
+			if data.IsClient {
+				@sharedhtml.TopBarClient("Help")
+			} else {
+				@sharedhtml.TopBarWithRole("Help", data.IsAdmin)
+			}
+
+			<main class="container-shell space-y-4">
+				<section class="page-card">
+					<div class="page-card-body space-y-3">
+						if data.IsAdmin {
+							<h1 class="text-2xl font-bold">Help For Admins</h1>
+							<p class="text-base-content/70">This explains the normal day-to-day flow in simple terms.</p>
+							<ol class="list-decimal pl-6 space-y-2 text-sm sm:text-base">
+								<li>Create a project first. Add a clear project name, description, date, client name, and code.</li>
+								<li>Set the project to active so scanners can receipt pallets against it.</li>
+								<li>Use Imports to upload the SKU file for that project. This becomes the lookup list during receipting.</li>
+								<li>Open pallet progress and generate one or many pallet labels for the active project.</li>
+								<li>Scanners then use Scan and Receipt screens to record quantities, case size, damaged lines, unknown items, comments, and photos.</li>
+								<li>While project is active and pallet is open, receipt lines can be edited or deleted to correct mistakes.</li>
+								<li>When a pallet is complete, close it. You can reopen or cancel from pallet progress if needed.</li>
+								<li>Review pallet contents, SKU view, and project logs. Export project or pallet data when required.</li>
+							</ol>
+						} else if data.IsScanner {
+							<h1 class="text-2xl font-bold">Help For Scanners</h1>
+							<p class="text-base-content/70">This is your quick operating flow on the floor.</p>
+							<ol class="list-decimal pl-6 space-y-2 text-sm sm:text-base">
+								<li>Go to Projects and make sure you are working in the correct active project.</li>
+								<li>Go to Scan and scan a pallet label, or type the pallet digits, to open that pallet receipt screen.</li>
+								<li>Record each line with SKU, qty, case size, batch, and expiry (if available).</li>
+								<li>If goods are damaged, record damaged quantity as its own damaged line.</li>
+								<li>If SKU is unknown, mark Unknown SKU and take a photo so it can be identified later.</li>
+								<li>You can edit or delete lines only while pallet is open and project is active.</li>
+								<li>If project is inactive, you can still view pallet details, but you cannot change receipt lines.</li>
+								<li>Use pallet progress View to check what is already recorded on each pallet.</li>
+							</ol>
+						} else if data.IsClient {
+							<h1 class="text-2xl font-bold">Help For Clients</h1>
+							<p class="text-base-content/70">Your access is read-focused for your assigned project.</p>
+							<ol class="list-decimal pl-6 space-y-2 text-sm sm:text-base">
+								<li>After login, go to SKU View for your assigned project.</li>
+								<li>Use filters to view all, success, unknown, damaged, expired, or client-commented SKU summaries.</li>
+								<li>Open View on a SKU to inspect pallet-level breakdown, photos, and previous comments.</li>
+								<li>Add comments against the exact pallet instance so each observation is traceable.</li>
+								<li>You cannot create projects, import stock, generate pallets, or receipt/edit pallet lines.</li>
+							</ol>
+						} else {
+							<h1 class="text-2xl font-bold">Help</h1>
+							<p class="text-base-content/70">Role-specific help is not available for this account.</p>
+						}
+					</div>
+				</section>
+			</main>
+
+			if data.IsClient {
+				@sharedhtml.DockClient(sharedhtml.NavHelp)
+			} else {
+				@sharedhtml.DockWithRole(sharedhtml.NavHelp, data.IsAdmin)
+			}
+			@templ.Raw(sharedhtml.CSRFFormScript())
+		</body>
+	</html>
+}
+

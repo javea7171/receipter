@@ -42,14 +42,11 @@ func ReceiptPageQueryHandler(db *sqlite.DB, _ *cache.UserSessionCache) http.Hand
 			http.Error(w, "failed to load receipt page", http.StatusInternalServerError)
 			return
 		}
-		for _, role := range session.UserRoles {
-			if role == rbac.RoleAdmin {
-				data.IsAdmin = true
-				break
-			}
-		}
+		data.IsAdmin = userHasRole(session.UserRoles, rbac.RoleAdmin)
+		data.IsScanner = userHasRole(session.UserRoles, rbac.RoleScanner)
 		data.CanEdit = CanUserReceiptPallet(data.ProjectStatus, data.PalletStatus, session.UserRoles)
 		data.CanManageLines = CanManageReceiptLines(data.ProjectStatus, data.PalletStatus)
+		data.CanFinish = data.IsScanner && data.ProjectStatus == "active" && data.PalletStatus == "open"
 		if !data.CanEdit {
 			if data.ProjectStatus != "active" {
 				data.Message = "Project is inactive. This pallet is read-only."
@@ -68,6 +65,15 @@ func ReceiptPageQueryHandler(db *sqlite.DB, _ *cache.UserSessionCache) http.Hand
 			return
 		}
 	}
+}
+
+func userHasRole(userRoles []string, role string) bool {
+	for _, userRole := range userRoles {
+		if userRole == role {
+			return true
+		}
+	}
+	return false
 }
 
 // CreateReceiptCommandHandler stores/merges receipt line against pallet.

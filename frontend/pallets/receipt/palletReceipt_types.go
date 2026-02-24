@@ -63,8 +63,10 @@ type PageData struct {
 	ProjectStatus  string
 	PalletStatus   string
 	IsAdmin        bool
+	IsScanner      bool
 	CanEdit        bool
 	CanManageLines bool
+	CanFinish      bool
 	Message        string
 	Lines          []ReceiptLineView
 }

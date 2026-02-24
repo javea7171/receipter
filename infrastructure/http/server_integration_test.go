@@ -1012,8 +1012,8 @@ func TestScannerRestrictedScreensAndProgressUsesScanView(t *testing.T) {
 	if !strings.Contains(progressText, "/tasker/pallets/1/content-label") {
 		t.Fatalf("expected scanner progress to include content view button for pallet 1")
 	}
-	if !strings.Contains(progressText, `/tasker/projects`) || !strings.Contains(progressText, `/tasker/scan/pallet`) {
-		t.Fatalf("scanner navigation should include projects and scan links")
+	if !strings.Contains(progressText, `/tasker/projects`) || !strings.Contains(progressText, `/tasker/scan/pallet`) || !strings.Contains(progressText, `/tasker/help`) {
+		t.Fatalf("scanner navigation should include projects, scan, and help links")
 	}
 	if strings.Contains(progressText, `>Pallets</a>`) {
 		t.Fatalf("scanner navigation should not include pallets menu link")
@@ -1060,8 +1060,8 @@ func TestScannerRestrictedScreensAndProgressUsesScanView(t *testing.T) {
 		t.Fatalf("read scanner scan page body: %v", err)
 	}
 	scanText := string(scanBody)
-	if !strings.Contains(scanText, `/tasker/projects`) || !strings.Contains(scanText, `/tasker/scan/pallet`) {
-		t.Fatalf("scanner scan page navigation should include projects and scan links")
+	if !strings.Contains(scanText, `/tasker/projects`) || !strings.Contains(scanText, `/tasker/scan/pallet`) || !strings.Contains(scanText, `/tasker/help`) {
+		t.Fatalf("scanner scan page navigation should include projects, scan, and help links")
 	}
 	if strings.Contains(scanText, `>Pallets</a>`) {
 		t.Fatalf("scanner scan page navigation should not include pallets menu link")
@@ -1083,8 +1083,8 @@ func TestScannerRestrictedScreensAndProgressUsesScanView(t *testing.T) {
 		t.Fatalf("read scanner receipt page body: %v", err)
 	}
 	receiptText := string(receiptBody)
-	if !strings.Contains(receiptText, `/tasker/projects`) || !strings.Contains(receiptText, `/tasker/scan/pallet`) {
-		t.Fatalf("scanner receipt page navigation should include projects and scan links")
+	if !strings.Contains(receiptText, `/tasker/projects`) || !strings.Contains(receiptText, `/tasker/scan/pallet`) || !strings.Contains(receiptText, `/tasker/help`) {
+		t.Fatalf("scanner receipt page navigation should include projects, scan, and help links")
 	}
 	if strings.Contains(receiptText, `>Pallets</a>`) {
 		t.Fatalf("scanner receipt page navigation should not include pallets menu link")
@@ -1133,14 +1133,55 @@ func TestScannerRestrictedScreensAndProgressUsesScanView(t *testing.T) {
 	}
 	_ = resp.Body.Close()
 
-	resp = postForm(t, scannerClient, env.server.URL, "/tasker/api/pallets/1/close", nil)
+	resp = postForm(t, scannerClient, env.server.URL, "/tasker/api/pallets/1/receipts", url.Values{
+		"sku":          {"SKU-SCAN-CLOSE"},
+		"description":  {"Scanner close item"},
+		"qty":          {"1"},
+		"case_size":    {"1"},
+		"batch_number": {"B-SCAN"},
+		"expiry_date":  {"2029-01-01"},
+	})
 	if resp.StatusCode != http.StatusSeeOther {
-		t.Fatalf("expected scanner close pallet denied with 303, got %d", resp.StatusCode)
-	}
-	if !strings.Contains(resp.Header.Get("Location"), "/login") {
-		t.Fatalf("expected scanner close pallet redirect to login, got %s", resp.Header.Get("Location"))
+		t.Fatalf("expected scanner receipt create 303, got %d", resp.StatusCode)
 	}
 	_ = resp.Body.Close()
+
+	resp = get(t, scannerClient, env.server.URL, "/tasker/pallets/1/receipt")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected scanner receipt page 200 after line add, got %d", resp.StatusCode)
+	}
+	receiptBody, err = io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read scanner receipt page body after line add: %v", err)
+	}
+	_ = resp.Body.Close()
+	receiptText = string(receiptBody)
+	if !strings.Contains(receiptText, `>Finish</button>`) {
+		t.Fatalf("scanner receipt page should include finish button once pallet is open")
+	}
+	if !strings.Contains(receiptText, `/tasker/api/pallets/1/close`) {
+		t.Fatalf("scanner receipt page should include close endpoint action")
+	}
+
+	resp = postForm(t, scannerClient, env.server.URL, "/tasker/api/pallets/1/close", nil)
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected scanner close pallet 303, got %d", resp.StatusCode)
+	}
+	if !strings.Contains(resp.Header.Get("Location"), "/tasker/pallets/progress") {
+		t.Fatalf("expected scanner close pallet redirect to progress, got %s", resp.Header.Get("Location"))
+	}
+	_ = resp.Body.Close()
+
+	var palletStatus string
+	err = env.db.WithReadTx(context.Background(), func(ctx context.Context, tx bun.Tx) error {
+		return tx.NewRaw(`SELECT status FROM pallets WHERE id = 1`).Scan(ctx, &palletStatus)
+	})
+	if err != nil {
+		t.Fatalf("load pallet status after scanner close: %v", err)
+	}
+	if palletStatus != "closed" {
+		t.Fatalf("expected pallet status closed after scanner finish, got %s", palletStatus)
+	}
 }
 
 func TestPalletContentLabelFragmentIncludesScannerAndMorphTarget(t *testing.T) {
@@ -1830,8 +1871,11 @@ func TestClientRoleSkuOnlyNavigationCommentAndExports(t *testing.T) {
 	if !strings.Contains(text, "/tasker/pallets/sku-view") {
 		t.Fatalf("expected sku view link in client navigation")
 	}
+	if !strings.Contains(text, "/tasker/help") {
+		t.Fatalf("expected help link in client navigation")
+	}
 	if strings.Contains(text, "/tasker/projects") || strings.Contains(text, "/tasker/scan/pallet") || strings.Contains(text, "/tasker/stock/import") || strings.Contains(text, "/tasker/exports") || strings.Contains(text, "/tasker/admin/users") {
-		t.Fatalf("client navigation should only expose sku view and logout")
+		t.Fatalf("client navigation should only expose sku view, help, and logout")
 	}
 
 	resp = get(t, clientHTTP, env.server.URL, "/tasker/pallets/1/content-label")
@@ -2002,5 +2046,66 @@ func TestServerEndToEndCoreFlow(t *testing.T) {
 	}
 	if !strings.Contains(csvText, "SKU-1") {
 		t.Fatalf("missing exported sku")
+	}
+}
+
+func TestHelpPageRoleSpecificContent(t *testing.T) {
+	env, _ := setupIntegrationServer(t)
+	adminClient := newHTTPClient(t)
+	scannerClient := newHTTPClient(t)
+	clientHTTP := newHTTPClient(t)
+
+	clientPassword := "ClientHelp123!Receipter"
+	seedClientUser(t, env.db, "clienthelp", clientPassword, 1)
+
+	loginAs(t, adminClient, env.server.URL, "admin", "Admin123!Receipter")
+	resp := get(t, adminClient, env.server.URL, "/tasker/help")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected admin help page 200, got %d", resp.StatusCode)
+	}
+	adminBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read admin help body: %v", err)
+	}
+	_ = resp.Body.Close()
+	adminText := string(adminBody)
+	if !strings.Contains(adminText, "Help For Admins") || !strings.Contains(adminText, "Create a project first") {
+		t.Fatalf("expected admin help content")
+	}
+	if !strings.Contains(adminText, "/tasker/help") {
+		t.Fatalf("expected admin navigation to include help link")
+	}
+
+	loginAs(t, scannerClient, env.server.URL, "scanner1", "Scanner123!Receipter")
+	resp = get(t, scannerClient, env.server.URL, "/tasker/help")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected scanner help page 200, got %d", resp.StatusCode)
+	}
+	scannerBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read scanner help body: %v", err)
+	}
+	_ = resp.Body.Close()
+	scannerText := string(scannerBody)
+	if !strings.Contains(scannerText, "Help For Scanners") || !strings.Contains(scannerText, "scan a pallet label") {
+		t.Fatalf("expected scanner help content")
+	}
+
+	loginAs(t, clientHTTP, env.server.URL, "clienthelp", clientPassword)
+	resp = get(t, clientHTTP, env.server.URL, "/tasker/help")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected client help page 200, got %d", resp.StatusCode)
+	}
+	clientBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read client help body: %v", err)
+	}
+	_ = resp.Body.Close()
+	clientText := string(clientBody)
+	if !strings.Contains(clientText, "Help For Clients") || !strings.Contains(clientText, "Add comments against the exact pallet instance") {
+		t.Fatalf("expected client help content")
+	}
+	if strings.Contains(clientText, "/tasker/projects") || strings.Contains(clientText, "/tasker/stock/import") || strings.Contains(clientText, "/tasker/admin/users") {
+		t.Fatalf("client help navigation should not expose admin/scanner links")
 	}
 }

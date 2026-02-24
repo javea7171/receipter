@@ -71,12 +71,21 @@ templ PalletReceiptPage(data PageData) {
 							<span class="text-sm text-base-content/60">{ data.ProjectName } ({ data.ClientName })</span>
 						</div>
 					</div>
-					<a href="/tasker/pallets/progress" class="btn btn-ghost btn-sm">
-						<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="size-4">
-							<path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18"/>
-						</svg>
-						Back
-					</a>
+					<div class="flex items-center gap-2">
+						if data.CanFinish {
+							<form method="post" action={ fmt.Sprintf("/tasker/api/pallets/%d/close", data.PalletID) }>
+								<button class="btn btn-primary btn-sm" type="submit" onclick="return confirm('Finish receipting and close this pallet?');">
+									Finish
+								</button>
+							</form>
+						}
+						<a href="/tasker/pallets/progress" class="btn btn-ghost btn-sm">
+							<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="size-4">
+								<path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18"/>
+							</svg>
+							Back
+						</a>
+					</div>
 				</div>
 
 				<!-- Alerts -->
