@@ -2,9 +2,12 @@ CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
-    role TEXT NOT NULL CHECK (role IN ('admin', 'scanner')),
+    role TEXT NOT NULL CHECK (role IN ('admin', 'scanner', 'client')),
+    client_project_id INTEGER,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (client_project_id) REFERENCES projects(id),
+    CHECK (role != 'client' OR client_project_id IS NOT NULL)
 );
 
 CREATE TABLE IF NOT EXISTS projects (
@@ -35,6 +38,7 @@ CREATE TABLE IF NOT EXISTS stock_items (
     project_id INTEGER NOT NULL,
     sku TEXT NOT NULL,
     description TEXT NOT NULL,
+    uom TEXT NOT NULL DEFAULT '',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (project_id) REFERENCES projects(id),
@@ -57,9 +61,12 @@ CREATE TABLE IF NOT EXISTS pallet_receipts (
     pallet_id INTEGER NOT NULL,
     sku TEXT NOT NULL,
     description TEXT NOT NULL,
+    uom TEXT NOT NULL DEFAULT '',
+    comment TEXT NOT NULL DEFAULT '',
     scanned_by_user_id INTEGER NOT NULL,
     qty INTEGER NOT NULL CHECK (qty > 0),
     case_size INTEGER NOT NULL DEFAULT 1 CHECK (case_size > 0),
+    unknown_sku BOOLEAN NOT NULL DEFAULT 0,
     damaged BOOLEAN NOT NULL DEFAULT 0,
     damaged_qty INTEGER NOT NULL DEFAULT 0 CHECK (damaged_qty >= 0 AND damaged_qty <= qty),
     batch_number TEXT,
@@ -119,6 +126,22 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     FOREIGN KEY (user_id) REFERENCES users(id)
 );
 
+CREATE TABLE IF NOT EXISTS sku_client_comments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL,
+    pallet_id INTEGER NOT NULL,
+    sku TEXT NOT NULL,
+    uom TEXT NOT NULL DEFAULT '',
+    batch_number TEXT NOT NULL DEFAULT '',
+    expiry_date DATE,
+    comment TEXT NOT NULL,
+    created_by_user_id INTEGER NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (project_id) REFERENCES projects(id),
+    FOREIGN KEY (pallet_id) REFERENCES pallets(id),
+    FOREIGN KEY (created_by_user_id) REFERENCES users(id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_projects_status ON projects(status);
 CREATE INDEX IF NOT EXISTS idx_stock_items_project_sku ON stock_items(project_id, sku);
 CREATE INDEX IF NOT EXISTS idx_stock_items_description ON stock_items(description);
@@ -130,6 +153,8 @@ CREATE INDEX IF NOT EXISTS idx_stock_import_runs_project_id ON stock_import_runs
 CREATE INDEX IF NOT EXISTS idx_export_runs_project_id ON export_runs(project_id);
 CREATE INDEX IF NOT EXISTS idx_pallets_status ON pallets(status);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_entity ON audit_logs(entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS idx_users_client_project ON users(client_project_id);
+CREATE INDEX IF NOT EXISTS idx_sku_client_comments_match ON sku_client_comments(project_id, pallet_id, sku, uom, batch_number, expiry_date);
 
 -- Context switching is operational state, not business audit signal.
 -- Remove legacy entries so project logs only show meaningful events.

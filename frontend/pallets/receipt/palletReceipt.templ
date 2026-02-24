@@ -119,8 +119,11 @@ templ PalletReceiptPage(data PageData) {
 										<tr>
 											<th>SKU</th>
 											<th>Description</th>
+											<th>Unit of measure</th>
+											<th>Comment</th>
 											<th>Qty</th>
 											<th>Case Size</th>
+											<th>Unknown SKU</th>
 											<th>Damaged</th>
 											<th>Batch</th>
 											<th>Expiry</th>
@@ -136,6 +139,8 @@ templ PalletReceiptPage(data PageData) {
 													data-receipt-id={ fmt.Sprintf("%d", line.ID) }
 													data-sku={ line.SKU }
 													data-description={ line.Description }
+													data-uom={ line.UOM }
+													data-comment={ line.Comment }
 													data-qty={ fmt.Sprintf("%d", line.Qty) }
 													data-case-size={ fmt.Sprintf("%d", line.CaseSize) }
 													data-damaged={ receiptBoolData(line.Damaged) }
@@ -143,8 +148,27 @@ templ PalletReceiptPage(data PageData) {
 													data-expiry={ line.ExpiryDateISO }>
 													<td class="font-mono font-semibold">{ line.SKU }</td>
 													<td>{ line.Description }</td>
+													<td>{ line.UOM }</td>
+													<td>
+														if line.Comment != "" {
+															<span class="inline-flex items-center text-primary" title={ line.Comment }>
+																<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="size-4">
+																	<path stroke-linecap="round" stroke-linejoin="round" d="M8.625 9.75a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m0 0h3.375m-3.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m0 0h3.375M3.75 6.75A2.25 2.25 0 0 1 6 4.5h12a2.25 2.25 0 0 1 2.25 2.25v8.25A2.25 2.25 0 0 1 18 17.25H9l-4.5 2.25V6.75Z"/>
+																</svg>
+															</span>
+														} else {
+															<span class="text-base-content/30">--</span>
+														}
+													</td>
 													<td class="font-medium">{ line.Qty }</td>
 													<td class="font-medium">{ line.CaseSize }</td>
+													<td>
+														if line.UnknownSKU {
+															<span class="badge badge-warning">Yes</span>
+														} else {
+															<span class="badge badge-success badge-soft">No</span>
+														}
+													</td>
 													<td>
 														if line.Damaged {
 															<span class="badge badge-warning">Yes</span>
@@ -186,6 +210,8 @@ templ PalletReceiptPage(data PageData) {
 										data-receipt-id={ fmt.Sprintf("%d", line.ID) }
 										data-sku={ line.SKU }
 										data-description={ line.Description }
+										data-uom={ line.UOM }
+										data-comment={ line.Comment }
 										data-qty={ fmt.Sprintf("%d", line.Qty) }
 										data-case-size={ fmt.Sprintf("%d", line.CaseSize) }
 										data-damaged={ receiptBoolData(line.Damaged) }
@@ -202,8 +228,30 @@ templ PalletReceiptPage(data PageData) {
 												<div class="grid grid-cols-2 gap-x-4 gap-y-1 text-sm mt-1">
 													<div class="text-base-content/60">Batch</div>
 													<div>{ line.BatchNumber }</div>
+													<div class="text-base-content/60">Unit of measure</div>
+													<div>{ line.UOM }</div>
+													<div class="text-base-content/60">Comment</div>
+													<div>
+														if line.Comment != "" {
+															<span class="inline-flex items-center text-primary" title={ line.Comment }>
+																<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="size-4">
+																	<path stroke-linecap="round" stroke-linejoin="round" d="M8.625 9.75a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m0 0h3.375m-3.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m0 0h3.375M3.75 6.75A2.25 2.25 0 0 1 6 4.5h12a2.25 2.25 0 0 1 2.25 2.25v8.25A2.25 2.25 0 0 1 18 17.25H9l-4.5 2.25V6.75Z"/>
+																</svg>
+															</span>
+														} else {
+															<span class="text-base-content/30">--</span>
+														}
+													</div>
 													<div class="text-base-content/60">Case Size</div>
 													<div>{ line.CaseSize }</div>
+													<div class="text-base-content/60">Unknown SKU</div>
+													<div>
+														if line.UnknownSKU {
+															<span class="text-warning font-semibold">Yes</span>
+														} else {
+															No
+														}
+													</div>
 													<div class="text-base-content/60">Expiry</div>
 													<div>{ line.ExpiryDateUK }</div>
 												<div class="text-base-content/60">Damaged</div>
@@ -252,6 +300,14 @@ templ PalletReceiptPage(data PageData) {
 												<fieldset class="fieldset">
 													<legend class="fieldset-legend">Description</legend>
 													<input id="line_edit_description" class="input input-bordered" name="description"/>
+												</fieldset>
+												<fieldset class="fieldset">
+													<legend class="fieldset-legend">Unit of measure</legend>
+													<input id="line_edit_uom" class="input input-bordered" name="uom"/>
+												</fieldset>
+												<fieldset class="fieldset sm:col-span-2">
+													<legend class="fieldset-legend">Comment</legend>
+													<textarea id="line_edit_comment" class="textarea textarea-bordered min-h-24" name="comment" placeholder="Optional comment"></textarea>
 												</fieldset>
 												<fieldset class="fieldset">
 													<legend class="fieldset-legend">Qty</legend>
@@ -324,6 +380,10 @@ templ ReceiptFormFields(canEdit bool) {
 				<input id="description_input" class="input input-bordered input-lg w-full" name="description" disabled?={ !canEdit } placeholder="Product description"/>
 			</fieldset>
 			<fieldset class="fieldset w-full">
+				<legend class="fieldset-legend text-base font-medium">Unit of measure</legend>
+				<input id="uom_input" class="input input-bordered input-lg w-full" name="uom" disabled?={ !canEdit } placeholder="unit, packs of 1000, etc"/>
+			</fieldset>
+			<fieldset class="fieldset w-full">
 				<legend class="fieldset-legend text-base font-medium">Qty</legend>
 				<input id="qty_input" class="input input-bordered input-lg w-full" type="number" name="qty" min="1" required disabled?={ !canEdit } placeholder="0"/>
 			</fieldset>
@@ -342,17 +402,22 @@ templ ReceiptFormFields(canEdit bool) {
 	</div>
 
 	<!-- Damage section -->
-	<div class="card card-border bg-base-100">
-		<div class="card-body p-4 gap-3">
-			<button class="btn btn-outline btn-error w-full sm:w-auto" type="button" id="damaged_toggle" disabled?={ !canEdit }>
+		<div class="card card-border bg-base-100">
+			<div class="card-body p-4 gap-3">
+				<button class="btn btn-outline btn-error w-full sm:w-auto" type="button" id="damaged_toggle" disabled?={ !canEdit }>
 				<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="size-5">
 					<path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
 				</svg>
-				Report Damage
-			</button>
-			<div id="damaged_fields" class="hidden space-y-4 mt-2">
-				<label class="fieldset-label cursor-pointer justify-start gap-3">
-					<input class="checkbox checkbox-warning checkbox-lg" type="checkbox" name="damaged" value="1" disabled?={ !canEdit }/>
+					Report Damage
+				</button>
+				<button class="btn btn-outline btn-warning w-full sm:w-auto" type="button" id="unknown_sku_toggle" disabled?={ !canEdit }>
+					Unknown SKU
+				</button>
+				<input type="hidden" id="unknown_sku_input" name="unknown_sku" value=""/>
+				<p id="unknown_sku_hint" class="hidden text-sm text-warning">Unknown SKU flagged. At least one photo is required.</p>
+				<div id="damaged_fields" class="hidden space-y-4 mt-2">
+					<label class="fieldset-label cursor-pointer justify-start gap-3">
+						<input class="checkbox checkbox-warning checkbox-lg" type="checkbox" name="damaged" value="1" disabled?={ !canEdit }/>
 					<span class="label-text text-lg font-medium">Mark as damaged</span>
 				</label>
 				<fieldset class="fieldset w-full max-w-xs">
@@ -409,6 +474,18 @@ templ ReceiptFormFields(canEdit bool) {
 		</div>
 		<div id="photo-thumbs" class="flex gap-2 mt-2 flex-wrap"></div>
 	</fieldset>
+
+	<!-- Comment -->
+	<div class="card card-border bg-base-100">
+		<div class="card-body p-4 gap-3">
+			<div class="flex flex-wrap items-center gap-2">
+				<button class="btn btn-outline btn-sm" type="button" id="comment_open_btn" onclick="openCommentModal()" disabled?={ !canEdit }>Add Comment</button>
+				<button class="btn btn-ghost btn-sm" type="button" id="comment_clear_btn" onclick="clearCommentValue()" disabled?={ !canEdit }>Clear</button>
+				<span id="comment_status" class="text-sm text-base-content/60">No comment</span>
+			</div>
+			<input type="hidden" id="comment_input" name="comment" value=""/>
+		</div>
+	</div>
 
 	<!-- Checkboxes -->
 	<div class="flex flex-col sm:flex-row gap-4">

@@ -9,6 +9,7 @@ import (
 const (
 	RoleAdmin   = "admin"
 	RoleScanner = "scanner"
+	RoleClient  = "client"
 )
 
 // Rbac stores route resources in cache.

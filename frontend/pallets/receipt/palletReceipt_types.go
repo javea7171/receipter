@@ -12,8 +12,11 @@ type ReceiptInput struct {
 	PalletID       int64
 	SKU            string
 	Description    string
+	UOM            string
+	Comment        string
 	Qty            int64
 	CaseSize       int64
+	UnknownSKU     bool
 	Damaged        bool
 	DamagedQty     int64
 	BatchNumber    string
@@ -32,8 +35,11 @@ type ReceiptLineView struct {
 	ID              int64
 	SKU             string
 	Description     string
+	UOM             string
+	Comment         string
 	Qty             int64
 	CaseSize        int64
+	UnknownSKU      bool
 	Damaged         bool
 	DamagedQty      int64
 	BatchNumber     string

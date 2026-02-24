@@ -170,7 +170,7 @@ func StockImportPage(data PageData) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "\" enctype=\"multipart/form-data\" class=\"space-y-4\"><fieldset class=\"fieldset w-full\"><legend class=\"fieldset-legend text-base font-medium\">CSV file</legend><p class=\"text-xs text-base-content/70\">Required header row: <span class=\"font-mono\">sku,description</span></p><input class=\"file-input file-input-bordered file-input-lg w-full\" type=\"file\" name=\"file\" accept=\".csv\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "\" enctype=\"multipart/form-data\" class=\"space-y-4\"><fieldset class=\"fieldset w-full\"><legend class=\"fieldset-legend text-base font-medium\">CSV file</legend><p class=\"text-xs text-base-content/70\">Required header row: <span class=\"font-mono\">sku,description,uom</span> (uom can be blank in data rows)</p><input class=\"file-input file-input-bordered file-input-lg w-full\" type=\"file\" name=\"file\" accept=\".csv\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -236,7 +236,7 @@ func StockImportPage(data PageData) templ.Component {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 27, ">Delete Selected</button></div><div class=\"overflow-x-auto\"><table class=\"table table-zebra\"><thead><tr><th></th><th>SKU</th><th>Description</th><th>Created</th><th>Updated</th><th></th></tr></thead> <tbody>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 27, ">Delete Selected</button></div><div class=\"overflow-x-auto\"><table class=\"table table-zebra\"><thead><tr><th></th><th>SKU</th><th>Description</th><th>UOM</th><th>Created</th><th>Updated</th><th></th></tr></thead> <tbody>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -248,7 +248,7 @@ func StockImportPage(data PageData) templ.Component {
 				var templ_7745c5c3_Var10 string
 				templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", record.ID))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/stock/stockImport.templ`, Line: 106, Col: 137}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/stock/stockImport.templ`, Line: 107, Col: 137}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
 				if templ_7745c5c3_Err != nil {
@@ -261,7 +261,7 @@ func StockImportPage(data PageData) templ.Component {
 				var templ_7745c5c3_Var11 string
 				templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(record.SKU)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/stock/stockImport.templ`, Line: 108, Col: 61}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/stock/stockImport.templ`, Line: 109, Col: 61}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
 				if templ_7745c5c3_Err != nil {
@@ -274,20 +274,20 @@ func StockImportPage(data PageData) templ.Component {
 				var templ_7745c5c3_Var12 string
 				templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(record.Description)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/stock/stockImport.templ`, Line: 109, Col: 37}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/stock/stockImport.templ`, Line: 110, Col: 37}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 31, "</td><td class=\"text-sm\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 31, "</td><td>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var13 string
-				templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(record.CreatedAt)
+				templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(record.UOM)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/stock/stockImport.templ`, Line: 110, Col: 51}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/stock/stockImport.templ`, Line: 111, Col: 29}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
 				if templ_7745c5c3_Err != nil {
@@ -298,48 +298,61 @@ func StockImportPage(data PageData) templ.Component {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var14 string
-				templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs(record.UpdatedAt)
+				templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs(record.CreatedAt)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/stock/stockImport.templ`, Line: 111, Col: 51}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/stock/stockImport.templ`, Line: 112, Col: 51}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var14))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 33, "</td><td class=\"text-right\"><button class=\"btn btn-error btn-soft btn-xs\" type=\"submit\" formaction=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 33, "</td><td class=\"text-sm\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var15 string
-				templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("/tasker/stock/delete/%d?project_id=%d", record.ID, data.ProjectID))
+				templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinStringErrs(record.UpdatedAt)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/stock/stockImport.templ`, Line: 116, Col: 108}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/stock/stockImport.templ`, Line: 113, Col: 51}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var15))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 34, "\" formmethod=\"post\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 34, "</td><td class=\"text-right\"><button class=\"btn btn-error btn-soft btn-xs\" type=\"submit\" formaction=\"")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				var templ_7745c5c3_Var16 string
+				templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("/tasker/stock/delete/%d?project_id=%d", record.ID, data.ProjectID))
+				if templ_7745c5c3_Err != nil {
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/stock/stockImport.templ`, Line: 118, Col: 108}
+				}
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 35, "\" formmethod=\"post\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				if !canModifyStock(data.ProjectStatus) {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 35, " disabled")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 36, " disabled")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 36, " onclick=\"return confirm('Delete this stock record?')\">Delete</button></td></tr>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 37, " onclick=\"return confirm('Delete this stock record?')\">Delete</button></td></tr>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 37, "</tbody></table></div></form>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 38, "</tbody></table></div></form>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 38, "</div></section></main>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 39, "</div></section></main>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -351,7 +364,7 @@ func StockImportPage(data PageData) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 39, "<script>\n\t\t\t\t(function() {\n\t\t\t\t\tconst toggle = document.getElementById('select-all-stock');\n\t\t\t\t\tif (!toggle) return;\n\t\t\t\t\ttoggle.addEventListener('change', function() {\n\t\t\t\t\t\tdocument.querySelectorAll('.stock-record-select').forEach(function(el) {\n\t\t\t\t\t\t\tel.checked = toggle.checked;\n\t\t\t\t\t\t});\n\t\t\t\t\t});\n\t\t\t\t})();\n\t\t\t</script></body></html>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 40, "<script>\n\t\t\t\t(function() {\n\t\t\t\t\tconst toggle = document.getElementById('select-all-stock');\n\t\t\t\t\tif (!toggle) return;\n\t\t\t\t\ttoggle.addEventListener('change', function() {\n\t\t\t\t\t\tdocument.querySelectorAll('.stock-record-select').forEach(function(el) {\n\t\t\t\t\t\t\tel.checked = toggle.checked;\n\t\t\t\t\t\t});\n\t\t\t\t\t});\n\t\t\t\t})();\n\t\t\t</script></body></html>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

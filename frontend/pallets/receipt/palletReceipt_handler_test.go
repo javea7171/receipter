@@ -157,6 +157,28 @@ func TestCreateReceiptCommandHandler_BlankExpiryAccepted(t *testing.T) {
 	}
 }
 
+func TestCreateReceiptCommandHandler_UnknownSKUWithoutPhotoRedirectsError(t *testing.T) {
+	db := openTestDB(t)
+	seedPallet(t, db, 14)
+	handler := CreateReceiptCommandHandler(db, nil)
+
+	req := newReceiptFormRequestWithSession("14", url.Values{
+		"unknown_sku": {"1"},
+		"qty":         {"1"},
+		"case_size":   {"1"},
+	})
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusSeeOther {
+		t.Fatalf("expected 303 redirect, got %d", rr.Code)
+	}
+	location := rr.Header().Get("Location")
+	if !strings.Contains(location, "unknown+sku+requires+at+least+one+photo") {
+		t.Fatalf("unexpected redirect location: %s", location)
+	}
+}
+
 func TestCreateReceiptCommandHandler_InvalidMultipartRedirectsError(t *testing.T) {
 	db := openTestDB(t)
 	handler := CreateReceiptCommandHandler(db, nil)

@@ -48,7 +48,7 @@ func StockImportPageQueryHandler(db *sqlite.DB) http.HandlerFunc {
 
 		message := r.URL.Query().Get("status")
 		if message == "" {
-			message = "Upload CSV with header: sku,description"
+			message = "Upload CSV with header: sku,description,uom"
 		}
 		rows, err := ListStockRecords(r.Context(), db, projectID)
 		if err != nil {

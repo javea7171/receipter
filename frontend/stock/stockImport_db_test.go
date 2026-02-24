@@ -62,7 +62,7 @@ func TestImportCSV_InvalidHeader(t *testing.T) {
 func TestImportCSV_AllowsExtraColumnsAndHeaderOrder(t *testing.T) {
 	db := openStockTestDB(t)
 
-	csvData := "notes, description , \ufeffSKU,ignored\nn1,Alpha,A,x\nn2,Beta,B,y\n"
+	csvData := "notes,uom, description , \ufeffSKU,ignored\nn1,unit,Alpha,A,x\nn2,packs of 1000,Beta,B,y\n"
 	summary, err := ImportCSV(context.Background(), db, nil, 1, 1, strings.NewReader(csvData))
 	if err != nil {
 		t.Fatalf("import csv: %v", err)
@@ -73,11 +73,15 @@ func TestImportCSV_AllowsExtraColumnsAndHeaderOrder(t *testing.T) {
 
 	var count int
 	var descA string
+	var uomA string
 	err = db.WithReadTx(context.Background(), func(ctx context.Context, tx bun.Tx) error {
 		if err := tx.NewRaw(`SELECT COUNT(*) FROM stock_items`).Scan(ctx, &count); err != nil {
 			return err
 		}
-		return tx.NewRaw(`SELECT description FROM stock_items WHERE sku = 'A'`).Scan(ctx, &descA)
+		if err := tx.NewRaw(`SELECT description FROM stock_items WHERE sku = 'A'`).Scan(ctx, &descA); err != nil {
+			return err
+		}
+		return tx.NewRaw(`SELECT uom FROM stock_items WHERE sku = 'A'`).Scan(ctx, &uomA)
 	})
 	if err != nil {
 		t.Fatalf("verify imported items: %v", err)
@@ -88,12 +92,15 @@ func TestImportCSV_AllowsExtraColumnsAndHeaderOrder(t *testing.T) {
 	if descA != "Alpha" {
 		t.Fatalf("expected description Alpha for sku A, got %q", descA)
 	}
+	if uomA != "unit" {
+		t.Fatalf("expected uom unit for sku A, got %q", uomA)
+	}
 }
 
 func TestImportCSV_HappyPathAndUpdatePath(t *testing.T) {
 	db := openStockTestDB(t)
 
-	summary, err := ImportCSV(context.Background(), db, nil, 1, 1, strings.NewReader("sku,description\nA,Alpha\nB,Beta\n"))
+	summary, err := ImportCSV(context.Background(), db, nil, 1, 1, strings.NewReader("sku,description,uom\nA,Alpha,unit\nB,Beta,packs of 1000\n"))
 	if err != nil {
 		t.Fatalf("import csv 1: %v", err)
 	}
@@ -101,7 +108,7 @@ func TestImportCSV_HappyPathAndUpdatePath(t *testing.T) {
 		t.Fatalf("unexpected summary1: %+v", summary)
 	}
 
-	summary, err = ImportCSV(context.Background(), db, nil, 1, 1, strings.NewReader("sku,description\nA,Alpha2\nC,Gamma\n,Missing\n"))
+	summary, err = ImportCSV(context.Background(), db, nil, 1, 1, strings.NewReader("sku,description,uom\nA,Alpha2,case\nC,Gamma,\n,Missing,unit\n"))
 	if err != nil {
 		t.Fatalf("import csv 2: %v", err)
 	}
@@ -111,11 +118,15 @@ func TestImportCSV_HappyPathAndUpdatePath(t *testing.T) {
 
 	var count int
 	var descA string
+	var uomA string
 	err = db.WithReadTx(context.Background(), func(ctx context.Context, tx bun.Tx) error {
 		if err := tx.NewRaw(`SELECT COUNT(*) FROM stock_items`).Scan(ctx, &count); err != nil {
 			return err
 		}
 		if err := tx.NewRaw(`SELECT description FROM stock_items WHERE sku = 'A'`).Scan(ctx, &descA); err != nil {
+			return err
+		}
+		if err := tx.NewRaw(`SELECT uom FROM stock_items WHERE sku = 'A'`).Scan(ctx, &uomA); err != nil {
 			return err
 		}
 		return nil
@@ -129,11 +140,14 @@ func TestImportCSV_HappyPathAndUpdatePath(t *testing.T) {
 	if descA != "Alpha2" {
 		t.Fatalf("expected updated description Alpha2, got %q", descA)
 	}
+	if uomA != "case" {
+		t.Fatalf("expected updated uom case, got %q", uomA)
+	}
 }
 
 func TestListStockRecords_ReturnsSortedRows(t *testing.T) {
 	db := openStockTestDB(t)
-	_, err := ImportCSV(context.Background(), db, nil, 1, 1, strings.NewReader("sku,description\nz-last,Zeta\nA-first,Alpha\n"))
+	_, err := ImportCSV(context.Background(), db, nil, 1, 1, strings.NewReader("sku,description,uom\nz-last,Zeta,unit\nA-first,Alpha,\n"))
 	if err != nil {
 		t.Fatalf("import csv: %v", err)
 	}
@@ -152,7 +166,7 @@ func TestListStockRecords_ReturnsSortedRows(t *testing.T) {
 
 func TestDeleteStockItems_DeletesMissingAndInUse(t *testing.T) {
 	db := openStockTestDB(t)
-	_, err := ImportCSV(context.Background(), db, nil, 1, 1, strings.NewReader("sku,description\nKEEP,Keep\nDEL,Delete\n"))
+	_, err := ImportCSV(context.Background(), db, nil, 1, 1, strings.NewReader("sku,description,uom\nKEEP,Keep,unit\nDEL,Delete,case\n"))
 	if err != nil {
 		t.Fatalf("import csv: %v", err)
 	}

@@ -15,7 +15,7 @@ func writeReceiptCSV(ctx context.Context, db *sqlite.DB, w io.Writer, projectID 
 	writer := csv.NewWriter(w)
 	defer writer.Flush()
 
-	header := []string{"pallet_id", "sku", "description", "qty", "case_size", "item_barcode", "carton_barcode", "expiry", "batch_number"}
+	header := []string{"pallet_id", "sku", "description", "uom", "qty", "case_size", "item_barcode", "carton_barcode", "expiry", "batch_number"}
 	if err := writer.Write(header); err != nil {
 		return err
 	}
@@ -24,6 +24,7 @@ func writeReceiptCSV(ctx context.Context, db *sqlite.DB, w io.Writer, projectID 
 		PalletID      int64  `bun:"pallet_id"`
 		SKU           string `bun:"sku"`
 		Description   string `bun:"description"`
+		UOM           string `bun:"uom"`
 		Qty           int64  `bun:"qty"`
 		CaseSize      int64  `bun:"case_size"`
 		ItemBarcode   string `bun:"item_barcode"`
@@ -35,7 +36,7 @@ func writeReceiptCSV(ctx context.Context, db *sqlite.DB, w io.Writer, projectID 
 	rows := make([]row, 0)
 	err := db.WithReadTx(ctx, func(ctx context.Context, tx bun.Tx) error {
 		q := `
-	SELECT pr.pallet_id, pr.sku, pr.description, pr.qty, pr.case_size,
+	SELECT pr.pallet_id, pr.sku, pr.description, COALESCE(pr.uom, '') AS uom, pr.qty, pr.case_size,
 	       COALESCE(pr.item_barcode, '') AS item_barcode,
 	       COALESCE(pr.carton_barcode, '') AS carton_barcode,
 	       COALESCE(strftime('%d/%m/%Y', pr.expiry_date), '') AS expiry,
@@ -60,6 +61,7 @@ FROM pallet_receipts pr`
 			toString(r.PalletID),
 			r.SKU,
 			r.Description,
+			r.UOM,
 			toString(r.Qty),
 			toString(r.CaseSize),
 			r.ItemBarcode,

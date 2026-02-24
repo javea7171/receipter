@@ -21,8 +21,11 @@ func LoadPageData(ctx context.Context, db *sqlite.DB, palletID int64) (PageData,
 		ID             int64  `bun:"id"`
 		SKU            string `bun:"sku"`
 		Description    string `bun:"description"`
+		UOM            string `bun:"uom"`
+		Comment        string `bun:"comment"`
 		Qty            int64  `bun:"qty"`
 		CaseSize       int64  `bun:"case_size"`
+		UnknownSKU     bool   `bun:"unknown_sku"`
 		Damaged        bool   `bun:"damaged"`
 		DamagedQty     int64  `bun:"damaged_qty"`
 		BatchNumber    string `bun:"batch_number"`
@@ -45,7 +48,7 @@ WHERE p.id = ?`, palletID).Scan(ctx, &data.PalletStatus, &data.ProjectID, &data.
 			return err
 		}
 		if err := tx.NewRaw(`
-SELECT pr.id, pr.sku, pr.description, pr.qty, pr.case_size, pr.damaged, pr.damaged_qty, COALESCE(pr.batch_number, '') AS batch_number,
+SELECT pr.id, pr.sku, pr.description, COALESCE(pr.uom, '') AS uom, COALESCE(pr.comment, '') AS comment, pr.qty, pr.case_size, pr.unknown_sku, pr.damaged, pr.damaged_qty, COALESCE(pr.batch_number, '') AS batch_number,
        COALESCE(strftime('%d/%m/%Y', pr.expiry_date), '') AS expiry_date,
        COALESCE(strftime('%Y-%m-%d', pr.expiry_date), '') AS expiry_date_iso,
        COALESCE(pr.carton_barcode, '') AS carton_barcode,
@@ -99,8 +102,11 @@ ORDER BY pr.id DESC`, palletID, data.ProjectID).Scan(ctx, &lines); err != nil {
 			ID:              line.ID,
 			SKU:             line.SKU,
 			Description:     line.Description,
+			UOM:             line.UOM,
+			Comment:         line.Comment,
 			Qty:             line.Qty,
 			CaseSize:        line.CaseSize,
+			UnknownSKU:      line.UnknownSKU,
 			Damaged:         line.Damaged,
 			DamagedQty:      line.DamagedQty,
 			BatchNumber:     line.BatchNumber,
@@ -129,7 +135,7 @@ func SearchStock(ctx context.Context, db *sqlite.DB, projectID int64, q string) 
 		return tx.NewSelect().
 			Model(&items).
 			Where("project_id = ?", projectID).
-			Where("(sku LIKE ? OR description LIKE ?)", "%"+q+"%", "%"+q+"%").
+			Where("(sku LIKE ? OR description LIKE ? OR uom LIKE ?)", "%"+q+"%", "%"+q+"%", "%"+q+"%").
 			OrderExpr("sku ASC").
 			Limit(20).
 			Scan(ctx)
@@ -154,8 +160,20 @@ func SaveReceipt(ctx context.Context, db *sqlite.DB, auditSvc *audit.Service, us
 	}
 	input.SKU = strings.TrimSpace(input.SKU)
 	input.Description = strings.TrimSpace(input.Description)
-	if input.SKU == "" {
+	input.UOM = strings.TrimSpace(input.UOM)
+	input.Comment = strings.TrimSpace(input.Comment)
+	if input.UnknownSKU {
+		if input.SKU == "" {
+			input.SKU = "UNKNOWN"
+		}
+		if input.Description == "" {
+			input.Description = "Unidentifiable item"
+		}
+	} else if input.SKU == "" {
 		return fmt.Errorf("sku is required")
+	}
+	if input.UnknownSKU && len(input.StockPhotoBlob) == 0 && len(input.Photos) == 0 {
+		return fmt.Errorf("unknown sku requires at least one photo")
 	}
 	if input.Qty <= 0 {
 		return fmt.Errorf("qty must be greater than 0")
@@ -194,8 +212,10 @@ WHERE p.id = ?`, input.PalletID).Scan(ctx, &palletStatus, &projectID, &projectSt
 			return fmt.Errorf("invalid pallet status: %s", palletStatus)
 		}
 
-		if err := upsertStockItemCatalog(ctx, tx, projectID, input.SKU, input.Description); err != nil {
-			return err
+		if !input.UnknownSKU {
+			if err := upsertStockItemCatalog(ctx, tx, projectID, input.SKU, input.Description, input.UOM); err != nil {
+				return err
+			}
 		}
 
 		segments := []struct {
@@ -236,7 +256,7 @@ WHERE p.id = ?`, input.PalletID).Scan(ctx, &palletStatus, &projectID, &projectSt
 				lineInput.Photos = nil
 			}
 
-			if err := upsertReceiptLine(ctx, tx, auditSvc, userID, projectID, input.SKU, input.Description, lineInput); err != nil {
+			if err := upsertReceiptLine(ctx, tx, auditSvc, userID, projectID, input.SKU, input.Description, input.UOM, lineInput); err != nil {
 				return err
 			}
 			attachMedia = false
@@ -249,14 +269,16 @@ WHERE p.id = ?`, input.PalletID).Scan(ctx, &palletStatus, &projectID, &projectSt
 	})
 }
 
-func upsertReceiptLine(ctx context.Context, tx bun.Tx, auditSvc *audit.Service, userID, projectID int64, sku, description string, input ReceiptInput) error {
+func upsertReceiptLine(ctx context.Context, tx bun.Tx, auditSvc *audit.Service, userID, projectID int64, sku, description, uom string, input ReceiptInput) error {
 	var existing models.PalletReceipt
 	query := tx.NewSelect().
 		Model(&existing).
 		Where("project_id = ?", projectID).
 		Where("pallet_id = ?", input.PalletID).
 		Where("sku = ?", sku).
+		Where("uom = ?", uom).
 		Where("case_size = ?", input.CaseSize).
+		Where("unknown_sku = ?", input.UnknownSKU).
 		Where("damaged = ?", input.Damaged).
 		Where("COALESCE(batch_number, '') = COALESCE(?, '')", input.BatchNumber)
 	if input.ExpiryDate == nil {
@@ -273,8 +295,13 @@ func upsertReceiptLine(ctx context.Context, tx bun.Tx, auditSvc *audit.Service, 
 		before := existing
 		existing.Qty += input.Qty
 		existing.SKU = sku
+		existing.UOM = uom
+		existing.UnknownSKU = input.UnknownSKU
 		if description != "" || existing.Description == "" {
 			existing.Description = description
+		}
+		if input.Comment != "" {
+			existing.Comment = input.Comment
 		}
 		if input.Damaged {
 			existing.Damaged = true
@@ -313,9 +340,12 @@ func upsertReceiptLine(ctx context.Context, tx bun.Tx, auditSvc *audit.Service, 
 		PalletID:        input.PalletID,
 		SKU:             sku,
 		Description:     description,
+		UOM:             uom,
+		Comment:         input.Comment,
 		ScannedByUserID: userID,
 		Qty:             input.Qty,
 		CaseSize:        input.CaseSize,
+		UnknownSKU:      input.UnknownSKU,
 		Damaged:         input.Damaged,
 		DamagedQty:      damagedQty,
 		BatchNumber:     input.BatchNumber,
@@ -347,6 +377,8 @@ type ReceiptLineUpdateInput struct {
 	ReceiptID   int64
 	SKU         string
 	Description string
+	UOM         string
+	Comment     string
 	Qty         int64
 	CaseSize    int64
 	Damaged     bool
@@ -378,6 +410,8 @@ func UpdateReceiptLine(ctx context.Context, db *sqlite.DB, auditSvc *audit.Servi
 	}
 	input.SKU = strings.TrimSpace(input.SKU)
 	input.Description = strings.TrimSpace(input.Description)
+	input.UOM = strings.TrimSpace(input.UOM)
+	input.Comment = strings.TrimSpace(input.Comment)
 
 	return db.WithWriteTx(ctx, func(ctx context.Context, tx bun.Tx) error {
 		var palletStatus, projectStatus string
@@ -404,13 +438,17 @@ WHERE p.id = ?`, input.PalletID).Scan(ctx, &palletStatus, &projectID, &projectSt
 			return err
 		}
 
-		if err := upsertStockItemCatalog(ctx, tx, projectID, input.SKU, input.Description); err != nil {
-			return err
+		if !existing.UnknownSKU {
+			if err := upsertStockItemCatalog(ctx, tx, projectID, input.SKU, input.Description, input.UOM); err != nil {
+				return err
+			}
 		}
 
 		before := existing
 		existing.SKU = input.SKU
 		existing.Description = input.Description
+		existing.UOM = input.UOM
+		existing.Comment = input.Comment
 		existing.ScannedByUserID = userID
 		existing.Qty = input.Qty
 		existing.CaseSize = input.CaseSize
@@ -477,9 +515,10 @@ WHERE p.id = ?`, palletID).Scan(ctx, &palletStatus, &projectID, &projectStatus);
 	})
 }
 
-func upsertStockItemCatalog(ctx context.Context, tx bun.Tx, projectID int64, sku, description string) error {
+func upsertStockItemCatalog(ctx context.Context, tx bun.Tx, projectID int64, sku, description, uom string) error {
 	sku = strings.TrimSpace(sku)
 	description = strings.TrimSpace(description)
+	uom = strings.TrimSpace(uom)
 	if sku == "" {
 		return nil
 	}
@@ -499,6 +538,7 @@ func upsertStockItemCatalog(ctx context.Context, tx bun.Tx, projectID int64, sku
 			ProjectID:   projectID,
 			SKU:         sku,
 			Description: description,
+			UOM:         uom,
 		}
 		if _, err := tx.NewInsert().Model(&stock).Exec(ctx); err != nil {
 			return err
@@ -506,10 +546,19 @@ func upsertStockItemCatalog(ctx context.Context, tx bun.Tx, projectID int64, sku
 		return nil
 	}
 
+	updates := make([]string, 0, 3)
 	if description != "" && stock.Description != description {
 		stock.Description = description
+		updates = append(updates, "description")
+	}
+	if uom != "" && stock.UOM != uom {
+		stock.UOM = uom
+		updates = append(updates, "uom")
+	}
+	if len(updates) > 0 {
 		stock.UpdatedAt = time.Now()
-		if _, err := tx.NewUpdate().Model(&stock).Column("description", "updated_at").WherePK().Exec(ctx); err != nil {
+		updates = append(updates, "updated_at")
+		if _, err := tx.NewUpdate().Model(&stock).Column(updates...).WherePK().Exec(ctx); err != nil {
 			return err
 		}
 	}

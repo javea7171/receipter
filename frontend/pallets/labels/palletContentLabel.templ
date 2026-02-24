@@ -34,17 +34,48 @@ func damagedText(damaged bool) string {
 	return "No"
 }
 
-func contentRefreshURL(palletID int64) string {
+func contentFilterSelected(current, value string) bool {
+	return current == value
+}
+
+func contentRefreshURL(palletID int64, filter string) string {
 	q := url.Values{}
+	if normalizeContentFilter(filter) != "all" {
+		q.Set("filter", normalizeContentFilter(filter))
+	}
 	q.Set("fragment", "1")
 	return fmt.Sprintf("/tasker/pallets/%d/content-label?%s", palletID, q.Encode())
 }
 
-func contentAutoRefreshExpr(palletID int64) string {
-	return fmt.Sprintf("@get('%s', {openWhenHidden: true})", contentRefreshURL(palletID))
+func contentAutoRefreshExpr(palletID int64, filter string) string {
+	return fmt.Sprintf("@get('%s', {openWhenHidden: true})", contentRefreshURL(palletID, filter))
 }
 
-templ PalletContentLabelPage(palletID int64, projectID int64, status string, canExport bool, lines []ContentLine, events []PalletEvent) {
+func contentLineDetailURL(palletID, receiptID int64, filter string) string {
+	q := url.Values{}
+	if normalizeContentFilter(filter) != "all" {
+		q.Set("filter", normalizeContentFilter(filter))
+	}
+	encoded := q.Encode()
+	if encoded == "" {
+		return fmt.Sprintf("/tasker/pallets/%d/content-line/%d", palletID, receiptID)
+	}
+	return fmt.Sprintf("/tasker/pallets/%d/content-line/%d?%s", palletID, receiptID, encoded)
+}
+
+func contentLabelURL(palletID int64, filter string) string {
+	q := url.Values{}
+	if normalizeContentFilter(filter) != "all" {
+		q.Set("filter", normalizeContentFilter(filter))
+	}
+	encoded := q.Encode()
+	if encoded == "" {
+		return fmt.Sprintf("/tasker/pallets/%d/content-label", palletID)
+	}
+	return fmt.Sprintf("/tasker/pallets/%d/content-label?%s", palletID, encoded)
+}
+
+templ PalletContentLabelPage(palletID int64, projectID int64, status string, canExport bool, filter string, lines []ContentLine, events []PalletEvent) {
 	<!doctype html>
 	<html data-theme="light">
 		<head>
@@ -55,17 +86,17 @@ templ PalletContentLabelPage(palletID int64, projectID int64, status string, can
 			<script type="module" src={ contentDatastarBundleURL }></script>
 		</head>
 		<body>
-			@PalletContentLabelFragment(palletID, projectID, status, canExport, lines, events)
+			@PalletContentLabelFragment(palletID, projectID, status, canExport, filter, lines, events)
 		</body>
 	</html>
 }
 
-templ PalletContentLabelFragment(palletID int64, projectID int64, status string, canExport bool, lines []ContentLine, events []PalletEvent) {
+templ PalletContentLabelFragment(palletID int64, projectID int64, status string, canExport bool, filter string, lines []ContentLine, events []PalletEvent) {
 	<div
 		id="pallet-content-page"
 		data-signals:lastScrollY="0"
 		data-on:datastar-fetch="evt.detail.type === 'started' && ($lastScrollY = window.scrollY); evt.detail.type === 'finished' && requestAnimationFrame(() => window.scrollTo(0, $lastScrollY));"
-		data-on-interval__duration.3s={ contentAutoRefreshExpr(palletID) }>
+		data-on-interval__duration.3s={ contentAutoRefreshExpr(palletID, filter) }>
 		<main class="container-shell space-y-4">
 			<div class="page-header">
 				<div>
@@ -74,7 +105,19 @@ templ PalletContentLabelFragment(palletID int64, projectID int64, status string,
 						<span class={ contentStatusBadge(status) }>{ status }</span>
 					</div>
 				</div>
-				<div class="flex gap-2">
+				<div class="flex flex-col sm:flex-row sm:items-end gap-2">
+					<form method="get" action={ fmt.Sprintf("/tasker/pallets/%d/content-label", palletID) } class="flex items-end gap-2">
+						<fieldset class="fieldset">
+							<legend class="fieldset-legend text-xs uppercase tracking-wide">Filter</legend>
+							<select class="select select-bordered select-sm" name="filter" onchange="this.form.submit()">
+								<option value="all" selected?={ contentFilterSelected(filter, "all") }>All</option>
+								<option value="success" selected?={ contentFilterSelected(filter, "success") }>Success</option>
+								<option value="unknown" selected?={ contentFilterSelected(filter, "unknown") }>Unknown</option>
+								<option value="damaged" selected?={ contentFilterSelected(filter, "damaged") }>Damaged</option>
+								<option value="expired" selected?={ contentFilterSelected(filter, "expired") }>Expired</option>
+							</select>
+						</fieldset>
+					</form>
 					if canExport {
 						<a class="btn btn-soft btn-secondary btn-sm" href={ fmt.Sprintf("/tasker/exports/pallet/%d.csv?project_id=%d", palletID, projectID) }>Export CSV</a>
 					}
@@ -91,33 +134,67 @@ templ PalletContentLabelFragment(palletID int64, projectID int64, status string,
 								<tr>
 									<th>SKU</th>
 									<th>Description</th>
+									<th>UOM</th>
+									<th>Comment</th>
+									<th>Photo</th>
 									<th>Qty</th>
 									<th>Case Size</th>
+									<th>Unknown SKU</th>
 									<th>Damaged</th>
 									<th>Batch</th>
-									<th>Expiry</th>
-									<th>Scanned By</th>
-								</tr>
-							</thead>
-							<tbody>
-								if len(lines) == 0 {
-									<tr>
-										<td colspan="8" class="text-base-content/60">No receipt lines yet.</td>
+										<th>Expiry</th>
+										<th>Expired</th>
+										<th>Scanned By</th>
+										<th></th>
 									</tr>
-								}
-								for _, line := range lines {
+								</thead>
+								<tbody>
+									if len(lines) == 0 {
+										<tr>
+										<td colspan="14" class="text-base-content/60">No receipt lines for this filter.</td>
+										</tr>
+									}
+									for _, line := range lines {
 									<tr>
 										<td class="font-mono font-semibold">{ line.SKU }</td>
 										<td>{ line.Description }</td>
-										<td class="font-medium">{ line.Qty }</td>
-										<td>{ line.CaseSize }</td>
-										<td>{ damagedText(line.Damaged) }</td>
+										<td>{ line.UOM }</td>
+										<td>
+											if line.Comment != "" {
+												<span class="inline-flex items-center text-primary" title={ line.Comment }>
+													<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="size-4">
+														<path stroke-linecap="round" stroke-linejoin="round" d="M8.625 9.75a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m0 0h3.375m-3.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m0 0h3.375M3.75 6.75A2.25 2.25 0 0 1 6 4.5h12a2.25 2.25 0 0 1 2.25 2.25v8.25A2.25 2.25 0 0 1 18 17.25H9l-4.5 2.25V6.75Z"/>
+													</svg>
+												</span>
+											} else {
+												<span class="text-base-content/30">--</span>
+											}
+										</td>
+										<td>
+											if line.HasPhotos {
+												<span class="inline-flex items-center text-primary" title="Has photos">
+													<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="size-4">
+														<path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5V8.25A2.25 2.25 0 0 1 5.25 6h13.5A2.25 2.25 0 0 1 21 8.25v8.25M3 16.5l3.879-3.879a2.25 2.25 0 0 1 3.182 0l.879.879m0 0 3.879-3.879a2.25 2.25 0 0 1 3.182 0L21 12m-10.06 1.5 2.56 2.56M3 16.5l2.25 2.25A2.25 2.25 0 0 0 6.75 19.5h10.5a2.25 2.25 0 0 0 1.5-.75L21 16.5M9 9.75h.008v.008H9V9.75Z"/>
+													</svg>
+												</span>
+											} else {
+												<span class="text-base-content/30">--</span>
+											}
+										</td>
+									<td class="font-medium">{ line.Qty }</td>
+									<td>{ line.CaseSize }</td>
+									<td>{ damagedText(line.UnknownSKU) }</td>
+									<td>{ damagedText(line.Damaged) }</td>
 										<td>{ line.BatchNumber }</td>
-										<td>{ line.ExpiryDateUK }</td>
-										<td>{ scannerName(line.ScannedBy) }</td>
-									</tr>
-								}
-							</tbody>
+											<td>{ line.ExpiryDateUK }</td>
+											<td>{ damagedText(line.Expired) }</td>
+											<td>{ scannerName(line.ScannedBy) }</td>
+											<td>
+												<a class="btn btn-soft btn-info btn-sm" href={ contentLineDetailURL(palletID, line.ID, filter) }>View</a>
+											</td>
+										</tr>
+									}
+								</tbody>
 						</table>
 					</div>
 					<div class="grid gap-3 lg:hidden">
@@ -132,23 +209,52 @@ templ PalletContentLabelFragment(palletID int64, projectID int64, status string,
 										<span class="badge badge-neutral shrink-0">Qty { line.Qty }</span>
 									</div>
 									<div class="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+										<div class="text-base-content/60">UOM</div>
+										<div>{ line.UOM }</div>
+										<div class="text-base-content/60">Comment</div>
+										<div>
+											if line.Comment != "" {
+												<span class="inline-flex items-center text-primary" title={ line.Comment }>
+													<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="size-4">
+														<path stroke-linecap="round" stroke-linejoin="round" d="M8.625 9.75a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m0 0h3.375m-3.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m0 0h3.375M3.75 6.75A2.25 2.25 0 0 1 6 4.5h12a2.25 2.25 0 0 1 2.25 2.25v8.25A2.25 2.25 0 0 1 18 17.25H9l-4.5 2.25V6.75Z"/>
+													</svg>
+												</span>
+											} else {
+												<span class="text-base-content/30">--</span>
+											}
+										</div>
+										<div class="text-base-content/60">Photo</div>
+										<div>
+											if line.HasPhotos {
+												<span class="text-primary">Yes</span>
+											} else {
+												No
+											}
+										</div>
 										<div class="text-base-content/60">Case Size</div>
 										<div>{ line.CaseSize }</div>
+										<div class="text-base-content/60">Unknown SKU</div>
+										<div>{ damagedText(line.UnknownSKU) }</div>
 										<div class="text-base-content/60">Damaged</div>
 										<div>{ damagedText(line.Damaged) }</div>
 										<div class="text-base-content/60">Batch</div>
 										<div>{ line.BatchNumber }</div>
 										<div class="text-base-content/60">Expiry</div>
 										<div>{ line.ExpiryDateUK }</div>
-										<div class="text-base-content/60">Scanned By</div>
-										<div>{ scannerName(line.ScannedBy) }</div>
+										<div class="text-base-content/60">Expired</div>
+										<div>{ damagedText(line.Expired) }</div>
+											<div class="text-base-content/60">Scanned By</div>
+											<div>{ scannerName(line.ScannedBy) }</div>
+										</div>
+										<div class="card-actions mt-2">
+											<a class="btn btn-soft btn-info btn-sm w-full" href={ contentLineDetailURL(palletID, line.ID, filter) }>View</a>
+										</div>
 									</div>
 								</div>
-							</div>
-						}
+							}
 						if len(lines) == 0 {
 							<div class="alert alert-info">
-								<span>No receipt lines yet.</span>
+								<span>No receipt lines for this filter.</span>
 							</div>
 						}
 					</div>
@@ -208,4 +314,87 @@ templ PalletContentLabelFragment(palletID int64, projectID int64, status string,
 			</section>
 		</main>
 	</div>
+}
+
+templ PalletContentLineDetailPage(palletID int64, status string, filter string, line ContentLineDetail) {
+	<!doctype html>
+	<html data-theme="light">
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+			<title>Pallet { palletID } Line Detail</title>
+			<link rel="stylesheet" href="/assets/app.css"/>
+		</head>
+		<body>
+			<main class="container-shell space-y-4">
+				<div class="page-header">
+					<div>
+						<h1 class="text-xl font-bold sm:text-2xl">Line Detail</h1>
+						<p class="text-sm text-base-content/60">
+							Pallet { palletID } | <span class={ contentStatusBadge(status) }>{ status }</span>
+						</p>
+					</div>
+					<a class="btn btn-ghost btn-sm" href={ contentLabelURL(palletID, filter) }>Back</a>
+				</div>
+
+				<section class="page-card">
+					<div class="page-card-body">
+						<div class="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
+							<div class="text-base-content/60">SKU</div>
+							<div class="font-mono font-semibold">{ line.SKU }</div>
+							<div class="text-base-content/60">Description</div>
+							<div>{ line.Description }</div>
+							<div class="text-base-content/60">Unit of measure</div>
+							<div>{ line.UOM }</div>
+							<div class="text-base-content/60">Qty</div>
+							<div>{ line.Qty }</div>
+							<div class="text-base-content/60">Case Size</div>
+							<div>{ line.CaseSize }</div>
+							<div class="text-base-content/60">Unknown SKU</div>
+							<div>{ damagedText(line.UnknownSKU) }</div>
+							<div class="text-base-content/60">Damaged</div>
+							<div>{ damagedText(line.Damaged) }</div>
+							<div class="text-base-content/60">Batch</div>
+							<div>{ line.BatchNumber }</div>
+							<div class="text-base-content/60">Expiry</div>
+							<div>{ line.ExpiryDateUK }</div>
+							<div class="text-base-content/60">Expired</div>
+							<div>{ damagedText(line.Expired) }</div>
+							<div class="text-base-content/60">Scanned By</div>
+							<div>{ scannerName(line.ScannedBy) }</div>
+						</div>
+					</div>
+				</section>
+
+				<section class="page-card">
+					<div class="page-card-body space-y-2">
+						<h2 class="section-title">Comment</h2>
+						if line.Comment == "" {
+							<p class="text-base-content/60">No comment for this line.</p>
+						} else {
+							<div class="rounded border border-base-300 p-3 whitespace-pre-wrap break-words">{ line.Comment }</div>
+						}
+					</div>
+				</section>
+
+				<section class="page-card">
+					<div class="page-card-body space-y-2">
+						<h2 class="section-title">Photos</h2>
+						if !line.HasPrimaryPhoto && len(line.PhotoIDs) == 0 {
+							<p class="text-base-content/60">No photos attached to this line.</p>
+						} else {
+							<div class="flex flex-wrap gap-2">
+								if line.HasPrimaryPhoto {
+									<a class="btn btn-soft btn-secondary btn-sm" href={ fmt.Sprintf("/tasker/api/pallets/%d/receipts/%d/photo", line.PalletID, line.ID) } target="_blank" rel="noopener">Primary</a>
+								}
+								for i, photoID := range line.PhotoIDs {
+									<a class="btn btn-soft btn-primary btn-sm" href={ fmt.Sprintf("/tasker/api/pallets/%d/receipts/%d/photos/%d", line.PalletID, line.ID, photoID) } target="_blank" rel="noopener">Photo { i + 1 }</a>
+								}
+							</div>
+						}
+					</div>
+				</section>
+			</main>
+		</body>
+	</html>
 }

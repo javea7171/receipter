@@ -444,6 +444,185 @@ func TestSaveReceipt_SetsAndUpdatesScannerAttribution(t *testing.T) {
 	}
 }
 
+func TestSaveReceipt_UnknownSKURequiresPhoto(t *testing.T) {
+	db := openTestDB(t)
+	seedPallet(t, db, 55)
+
+	in := ReceiptInput{
+		PalletID:    55,
+		UnknownSKU:  true,
+		Qty:         1,
+		CaseSize:    1,
+		BatchNumber: "U1",
+	}
+	err := SaveReceipt(context.Background(), db, nil, 1, in)
+	if err == nil {
+		t.Fatalf("expected unknown sku photo validation error")
+	}
+	if !strings.Contains(err.Error(), "unknown sku requires at least one photo") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestSaveReceipt_UnknownSKUPersistsFlagAndDefaults(t *testing.T) {
+	db := openTestDB(t)
+	seedPallet(t, db, 56)
+
+	in := ReceiptInput{
+		PalletID:   56,
+		UnknownSKU: true,
+		Qty:        2,
+		CaseSize:   6,
+		Photos: []PhotoInput{
+			{
+				Blob:     []byte{0x89, 0x50, 0x4E, 0x47},
+				MIMEType: "image/png",
+				FileName: "unknown.png",
+			},
+		},
+	}
+	if err := SaveReceipt(context.Background(), db, nil, 1, in); err != nil {
+		t.Fatalf("save unknown sku receipt: %v", err)
+	}
+
+	var sku, description string
+	var unknownSKU bool
+	var photoCount int64
+	var stockCount int64
+	err := db.WithReadTx(context.Background(), func(ctx context.Context, tx bun.Tx) error {
+		if err := tx.NewRaw(`
+SELECT sku, description, unknown_sku
+FROM pallet_receipts
+WHERE pallet_id = ?
+LIMIT 1`, 56).Scan(ctx, &sku, &description, &unknownSKU); err != nil {
+			return err
+		}
+		if err := tx.NewRaw(`
+SELECT COUNT(*)
+FROM receipt_photos rp
+JOIN pallet_receipts pr ON pr.id = rp.pallet_receipt_id
+WHERE pr.pallet_id = ?`, 56).Scan(ctx, &photoCount); err != nil {
+			return err
+		}
+		return tx.NewRaw(`
+SELECT COUNT(*)
+FROM stock_items
+WHERE project_id = 1 AND sku = 'UNKNOWN'`).Scan(ctx, &stockCount)
+	})
+	if err != nil {
+		t.Fatalf("load unknown sku row: %v", err)
+	}
+
+	if sku != "UNKNOWN" {
+		t.Fatalf("expected sku UNKNOWN, got %q", sku)
+	}
+	if description != "Unidentifiable item" {
+		t.Fatalf("expected default description, got %q", description)
+	}
+	if !unknownSKU {
+		t.Fatalf("expected unknown_sku=true")
+	}
+	if photoCount != 1 {
+		t.Fatalf("expected 1 attached photo, got %d", photoCount)
+	}
+	if stockCount != 0 {
+		t.Fatalf("expected unknown sku not added to stock catalog, got %d rows", stockCount)
+	}
+}
+
+func TestSaveReceipt_DoesNotMergeDifferentUOM(t *testing.T) {
+	db := openTestDB(t)
+	seedPallet(t, db, 57)
+
+	in1 := ReceiptInput{
+		PalletID:    57,
+		SKU:         "UOM-1",
+		Description: "UOM Item",
+		UOM:         "unit",
+		Qty:         1,
+		CaseSize:    1,
+	}
+	in2 := ReceiptInput{
+		PalletID:    57,
+		SKU:         "UOM-1",
+		Description: "UOM Item",
+		UOM:         "packs of 1000",
+		Qty:         2,
+		CaseSize:    1,
+	}
+	if err := SaveReceipt(context.Background(), db, nil, 1, in1); err != nil {
+		t.Fatalf("save receipt 1: %v", err)
+	}
+	if err := SaveReceipt(context.Background(), db, nil, 1, in2); err != nil {
+		t.Fatalf("save receipt 2: %v", err)
+	}
+
+	rows, qty := countReceiptRows(t, db, 57)
+	if rows != 2 {
+		t.Fatalf("expected 2 rows for different uom values, got %d", rows)
+	}
+	if qty != 3 {
+		t.Fatalf("expected qty sum 3, got %d", qty)
+	}
+
+	data, err := LoadPageData(context.Background(), db, 57)
+	if err != nil {
+		t.Fatalf("load page data: %v", err)
+	}
+	if len(data.Lines) != 2 {
+		t.Fatalf("expected 2 lines in page data, got %d", len(data.Lines))
+	}
+	uomSeen := map[string]bool{}
+	for _, line := range data.Lines {
+		uomSeen[line.UOM] = true
+	}
+	if !uomSeen["unit"] || !uomSeen["packs of 1000"] {
+		t.Fatalf("expected both uom values in page data, got %+v", uomSeen)
+	}
+}
+
+func TestSaveReceipt_PersistsAndUpdatesComment(t *testing.T) {
+	db := openTestDB(t)
+	seedPallet(t, db, 58)
+
+	in1 := ReceiptInput{
+		PalletID:    58,
+		SKU:         "NOTE-1",
+		Description: "Commented item",
+		Qty:         1,
+		CaseSize:    1,
+		Comment:     "First note",
+	}
+	in2 := ReceiptInput{
+		PalletID:    58,
+		SKU:         "NOTE-1",
+		Description: "Commented item",
+		Qty:         2,
+		CaseSize:    1,
+		Comment:     "Updated note",
+	}
+	if err := SaveReceipt(context.Background(), db, nil, 1, in1); err != nil {
+		t.Fatalf("save receipt 1: %v", err)
+	}
+	if err := SaveReceipt(context.Background(), db, nil, 1, in2); err != nil {
+		t.Fatalf("save receipt 2: %v", err)
+	}
+
+	data, err := LoadPageData(context.Background(), db, 58)
+	if err != nil {
+		t.Fatalf("load page data: %v", err)
+	}
+	if len(data.Lines) != 1 {
+		t.Fatalf("expected merged single line, got %d", len(data.Lines))
+	}
+	if data.Lines[0].Comment != "Updated note" {
+		t.Fatalf("expected merged comment to be updated, got %q", data.Lines[0].Comment)
+	}
+	if data.Lines[0].Qty != 3 {
+		t.Fatalf("expected merged qty 3, got %d", data.Lines[0].Qty)
+	}
+}
+
 func TestParseOptionalPhotoRejectsNonImage(t *testing.T) {
 	req := newMultipartPhotoRequest(t, "text/plain", []byte("not image"), "note.txt")
 	_, _, _, err := parseOptionalPhoto(req)

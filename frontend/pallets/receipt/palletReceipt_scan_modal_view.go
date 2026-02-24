@@ -57,6 +57,52 @@ function closeReceiptLineEditor() {
   if (modal && modal.open) modal.close();
 }
 
+function updateCommentStatus() {
+  const input = document.getElementById("comment_input");
+  const status = document.getElementById("comment_status");
+  const openBtn = document.getElementById("comment_open_btn");
+  if (!input || !status) return;
+  const hasComment = input.value.trim() !== "";
+  status.textContent = hasComment ? "Comment added" : "No comment";
+  status.className = hasComment ? "text-sm text-success font-medium" : "text-sm text-base-content/60";
+  if (openBtn) {
+    openBtn.textContent = hasComment ? "Edit Comment" : "Add Comment";
+  }
+}
+
+function openCommentModal() {
+  const modal = document.getElementById("comment-modal");
+  const input = document.getElementById("comment_input");
+  const textarea = document.getElementById("comment_modal_text");
+  if (!modal || !input || !textarea) return;
+  textarea.value = input.value || "";
+  modal.showModal();
+  textarea.focus();
+  textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+}
+
+function closeCommentModal() {
+  const modal = document.getElementById("comment-modal");
+  if (modal && modal.open) modal.close();
+}
+
+function saveCommentValue() {
+  const input = document.getElementById("comment_input");
+  const textarea = document.getElementById("comment_modal_text");
+  if (!input || !textarea) return;
+  input.value = textarea.value.trim();
+  updateCommentStatus();
+  closeCommentModal();
+}
+
+function clearCommentValue() {
+  const input = document.getElementById("comment_input");
+  const textarea = document.getElementById("comment_modal_text");
+  if (input) input.value = "";
+  if (textarea) textarea.value = "";
+  updateCommentStatus();
+}
+
 async function startScanner() {
   if (quaggaRunning) return;
   await loadQuaggaScript();
@@ -117,14 +163,20 @@ function stopScanner() {
   }
 
   const skuInput = document.getElementById("sku_input");
+  const descriptionInput = document.getElementById("description_input");
+  const uomInput = document.getElementById("uom_input");
   const suggestions = document.getElementById("sku_suggestions");
   const qtyInput = document.getElementById("qty_input");
   const caseSizeInput = document.getElementById("case_size_input");
   const batchInput = document.getElementById("batch_input");
   const expiryInput = document.getElementById("expiry_input");
+  const unknownSkuToggle = document.getElementById("unknown_sku_toggle");
+  const unknownSkuInput = document.getElementById("unknown_sku_input");
+  const unknownSkuHint = document.getElementById("unknown_sku_hint");
   const lineEditorModal = document.getElementById("receipt-line-editor-modal");
   const lineEditorForm = document.getElementById("receipt-line-editor-form");
   const lineDeleteForm = document.getElementById("receipt-line-delete-form");
+  updateCommentStatus();
 
   function closeSuggestions() {
     const list = document.getElementById("sku_suggestions");
@@ -148,6 +200,50 @@ function stopScanner() {
     });
   }
 
+  function setUnknownSkuFlag(enabled) {
+    if (!unknownSkuInput) return;
+    unknownSkuInput.value = enabled ? "1" : "";
+    if (unknownSkuHint) {
+      unknownSkuHint.classList.toggle("hidden", !enabled);
+    }
+    if (unknownSkuToggle) {
+      unknownSkuToggle.classList.toggle("btn-warning", enabled);
+      unknownSkuToggle.classList.toggle("btn-outline", !enabled);
+      unknownSkuToggle.classList.toggle("text-white", enabled);
+    }
+  }
+
+  if (unknownSkuToggle && unknownSkuInput) {
+    unknownSkuToggle.addEventListener("click", function() {
+      const next = unknownSkuInput.value !== "1";
+      setUnknownSkuFlag(next);
+      if (next) {
+        if (skuInput && !skuInput.value.trim()) {
+          skuInput.value = "UNKNOWN";
+        }
+        if (descriptionInput && !descriptionInput.value.trim()) {
+          descriptionInput.value = "Unidentifiable item";
+        }
+        if (uomInput && !uomInput.value.trim()) {
+          uomInput.value = "";
+        }
+        if (typeof openPhotoModal === "function") {
+          openPhotoModal();
+        }
+      }
+    });
+  }
+
+  if (skuInput && unknownSkuInput) {
+    skuInput.addEventListener("input", function() {
+      if (unknownSkuInput.value !== "1") return;
+      const current = skuInput.value.trim().toUpperCase();
+      if (current !== "" && current !== "UNKNOWN") {
+        setUnknownSkuFlag(false);
+      }
+    });
+  }
+
   function wireEnterFocus(from, to) {
     if (!from || !to) return;
     from.addEventListener("keydown", function(event) {
@@ -165,6 +261,21 @@ function stopScanner() {
   wireEnterFocus(caseSizeInput, batchInput);
   wireEnterFocus(batchInput, expiryInput);
 
+  const receiptForm = document.querySelector("form[action^='/tasker/api/pallets/'][enctype='multipart/form-data']");
+  if (receiptForm && unknownSkuInput) {
+    receiptForm.addEventListener("submit", function(event) {
+      if (unknownSkuInput.value !== "1") return;
+      const photosInput = document.getElementById("stock_photos");
+      const hasPhoto = photosInput && photosInput.files && photosInput.files.length > 0;
+      if (hasPhoto) return;
+      event.preventDefault();
+      if (unknownSkuHint) unknownSkuHint.classList.remove("hidden");
+      if (typeof openPhotoModal === "function") {
+        openPhotoModal();
+      }
+    });
+  }
+
   function applyLineEditorData(trigger) {
     if (!trigger || !lineEditorForm || !lineDeleteForm || !lineEditorModal) return;
     const palletID = String(trigger.getAttribute("data-pallet-id") || "").trim();
@@ -176,6 +287,8 @@ function stopScanner() {
 
     const sku = document.getElementById("line_edit_sku");
     const description = document.getElementById("line_edit_description");
+    const uom = document.getElementById("line_edit_uom");
+    const comment = document.getElementById("line_edit_comment");
     const qty = document.getElementById("line_edit_qty");
     const caseSize = document.getElementById("line_edit_case_size");
     const batch = document.getElementById("line_edit_batch");
@@ -184,6 +297,8 @@ function stopScanner() {
 
     if (sku) sku.value = String(trigger.getAttribute("data-sku") || "");
     if (description) description.value = String(trigger.getAttribute("data-description") || "");
+    if (uom) uom.value = String(trigger.getAttribute("data-uom") || "");
+    if (comment) comment.value = String(trigger.getAttribute("data-comment") || "");
     if (qty) qty.value = String(trigger.getAttribute("data-qty") || "");
     if (caseSize) caseSize.value = String(trigger.getAttribute("data-case-size") || "");
     if (batch) batch.value = String(trigger.getAttribute("data-batch") || "");
@@ -203,6 +318,19 @@ function stopScanner() {
   });
 })();
 </script>
+
+<dialog id="comment-modal" class="modal">
+  <div class="modal-box max-w-lg">
+    <h3 class="text-lg font-semibold">Receipt Comment</h3>
+    <p class="mt-1 text-sm text-base-content/60">Optional note for this line item.</p>
+    <textarea id="comment_modal_text" class="textarea textarea-bordered w-full mt-3 min-h-32" placeholder="Enter comment"></textarea>
+    <div class="modal-action flex-col sm:flex-row gap-2">
+      <button class="btn btn-primary w-full sm:flex-1" type="button" onclick="saveCommentValue()">Save Comment</button>
+      <button class="btn btn-ghost w-full sm:flex-1" type="button" onclick="closeCommentModal()">Cancel</button>
+    </div>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button type="submit">close</button></form>
+</dialog>
 
 <dialog id="photo-modal" class="modal">
   <div class="modal-box max-w-3xl">

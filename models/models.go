@@ -10,12 +10,13 @@ import (
 type User struct {
 	bun.BaseModel `bun:"table:users,alias:u"`
 
-	ID           int64     `bun:"id,pk,autoincrement"`
-	Username     string    `bun:"username,unique,notnull"`
-	PasswordHash string    `bun:"password_hash,notnull"`
-	Role         string    `bun:"role,notnull"`
-	CreatedAt    time.Time `bun:"created_at,notnull,default:current_timestamp"`
-	UpdatedAt    time.Time `bun:"updated_at,notnull,default:current_timestamp"`
+	ID              int64     `bun:"id,pk,autoincrement"`
+	Username        string    `bun:"username,unique,notnull"`
+	PasswordHash    string    `bun:"password_hash,notnull"`
+	Role            string    `bun:"role,notnull"`
+	ClientProjectID *int64    `bun:"client_project_id"`
+	CreatedAt       time.Time `bun:"created_at,notnull,default:current_timestamp"`
+	UpdatedAt       time.Time `bun:"updated_at,notnull,default:current_timestamp"`
 }
 
 // Session is used by middleware and auth handlers.
@@ -61,6 +62,7 @@ type StockItem struct {
 	ProjectID   int64     `bun:"project_id,notnull"`
 	SKU         string    `bun:"sku,notnull"`
 	Description string    `bun:"description,notnull"`
+	UOM         string    `bun:"uom,notnull,default:''"`
 	CreatedAt   time.Time `bun:"created_at,notnull,default:current_timestamp"`
 	UpdatedAt   time.Time `bun:"updated_at,notnull,default:current_timestamp"`
 }
@@ -86,9 +88,12 @@ type PalletReceipt struct {
 	PalletID        int64      `bun:"pallet_id,notnull"`
 	SKU             string     `bun:"sku,notnull"`
 	Description     string     `bun:"description,notnull"`
+	UOM             string     `bun:"uom,notnull,default:''"`
+	Comment         string     `bun:"comment,notnull,default:''"`
 	ScannedByUserID int64      `bun:"scanned_by_user_id,notnull"`
 	Qty             int64      `bun:"qty,notnull"`
 	CaseSize        int64      `bun:"case_size,notnull,default:1"`
+	UnknownSKU      bool       `bun:"unknown_sku,notnull,default:false"`
 	Damaged         bool       `bun:"damaged,notnull,default:false"`
 	DamagedQty      int64      `bun:"damaged_qty,notnull,default:0"`
 	BatchNumber     string     `bun:"batch_number"`

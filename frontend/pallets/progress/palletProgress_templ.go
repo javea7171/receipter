@@ -184,12 +184,12 @@ func PalletProgressFragment(summary Summary) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "\">View Logs</a>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "\">View Logs</a> ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "<form method=\"get\" action=\"/tasker/pallets/progress\" class=\"flex items-end gap-2\"><fieldset class=\"fieldset\"><legend class=\"fieldset-legend text-xs uppercase tracking-wide\">Status</legend> <select class=\"select select-bordered select-sm\" name=\"status\" onchange=\"this.form.submit()\"><option value=\"all\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "<a class=\"btn btn-sm bg-white text-black border border-base-300 hover:bg-base-100\" href=\"/tasker/pallets/sku-view\">SKU View</a><form method=\"get\" action=\"/tasker/pallets/progress\" class=\"flex items-end gap-2\"><fieldset class=\"fieldset\"><legend class=\"fieldset-legend text-xs uppercase tracking-wide\">Status</legend> <select class=\"select select-bordered select-sm\" name=\"status\" onchange=\"this.form.submit()\"><option value=\"all\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -266,7 +266,7 @@ func PalletProgressFragment(summary Summary) templ.Component {
 		var templ_7745c5c3_Var8 string
 		templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(summary.CreatedCount)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/pallets/progress/palletProgress.templ`, Line: 125, Col: 74}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/pallets/progress/palletProgress.templ`, Line: 126, Col: 74}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 		if templ_7745c5c3_Err != nil {
@@ -279,7 +279,7 @@ func PalletProgressFragment(summary Summary) templ.Component {
 		var templ_7745c5c3_Var9 string
 		templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(summary.OpenCount)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/pallets/progress/palletProgress.templ`, Line: 131, Col: 71}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/pallets/progress/palletProgress.templ`, Line: 132, Col: 71}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 		if templ_7745c5c3_Err != nil {
@@ -292,7 +292,7 @@ func PalletProgressFragment(summary Summary) templ.Component {
 		var templ_7745c5c3_Var10 string
 		templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs(summary.ClosedCount)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/pallets/progress/palletProgress.templ`, Line: 137, Col: 60}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/pallets/progress/palletProgress.templ`, Line: 138, Col: 60}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
 		if templ_7745c5c3_Err != nil {
@@ -305,7 +305,7 @@ func PalletProgressFragment(summary Summary) templ.Component {
 		var templ_7745c5c3_Var11 string
 		templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(summary.CancelledCount)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/pallets/progress/palletProgress.templ`, Line: 143, Col: 74}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/pallets/progress/palletProgress.templ`, Line: 144, Col: 74}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
 		if templ_7745c5c3_Err != nil {
@@ -323,7 +323,7 @@ func PalletProgressFragment(summary Summary) templ.Component {
 			var templ_7745c5c3_Var12 string
 			templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("P%08d", p.ID))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/pallets/progress/palletProgress.templ`, Line: 174, Col: 74}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/pallets/progress/palletProgress.templ`, Line: 175, Col: 74}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
 			if templ_7745c5c3_Err != nil {
@@ -358,7 +358,7 @@ func PalletProgressFragment(summary Summary) templ.Component {
 			var templ_7745c5c3_Var15 string
 			templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinStringErrs(p.Status)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/pallets/progress/palletProgress.templ`, Line: 175, Col: 62}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/pallets/progress/palletProgress.templ`, Line: 176, Col: 62}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var15))
 			if templ_7745c5c3_Err != nil {
@@ -371,7 +371,7 @@ func PalletProgressFragment(summary Summary) templ.Component {
 			var templ_7745c5c3_Var16 string
 			templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(p.LineCount)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/pallets/progress/palletProgress.templ`, Line: 176, Col: 27}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/pallets/progress/palletProgress.templ`, Line: 177, Col: 27}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
 			if templ_7745c5c3_Err != nil {
@@ -384,7 +384,7 @@ func PalletProgressFragment(summary Summary) templ.Component {
 			var templ_7745c5c3_Var17 string
 			templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinStringErrs(p.CreatedAt)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/pallets/progress/palletProgress.templ`, Line: 177, Col: 43}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/pallets/progress/palletProgress.templ`, Line: 178, Col: 43}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var17))
 			if templ_7745c5c3_Err != nil {
@@ -397,7 +397,7 @@ func PalletProgressFragment(summary Summary) templ.Component {
 			var templ_7745c5c3_Var18 string
 			templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.JoinStringErrs(p.ClosedAt)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/pallets/progress/palletProgress.templ`, Line: 178, Col: 42}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/pallets/progress/palletProgress.templ`, Line: 179, Col: 42}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
 			if templ_7745c5c3_Err != nil {
@@ -410,7 +410,7 @@ func PalletProgressFragment(summary Summary) templ.Component {
 			var templ_7745c5c3_Var19 string
 			templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.JoinStringErrs(p.ReopenedAt)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/pallets/progress/palletProgress.templ`, Line: 179, Col: 44}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/pallets/progress/palletProgress.templ`, Line: 180, Col: 44}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var19))
 			if templ_7745c5c3_Err != nil {
@@ -428,7 +428,7 @@ func PalletProgressFragment(summary Summary) templ.Component {
 				var templ_7745c5c3_Var20 templ.SafeURL
 				templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.JoinURLErrs(fmt.Sprintf("/tasker/pallets/%d/label", p.ID))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/pallets/progress/palletProgress.templ`, Line: 182, Col: 109}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/pallets/progress/palletProgress.templ`, Line: 183, Col: 109}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var20))
 				if templ_7745c5c3_Err != nil {
@@ -451,7 +451,7 @@ func PalletProgressFragment(summary Summary) templ.Component {
 				var templ_7745c5c3_Var21 templ.SafeURL
 				templ_7745c5c3_Var21, templ_7745c5c3_Err = templ.JoinURLErrs(fmt.Sprintf("/tasker/pallets/%d/content-label", p.ID))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/pallets/progress/palletProgress.templ`, Line: 187, Col: 112}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/pallets/progress/palletProgress.templ`, Line: 188, Col: 112}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var21))
 				if templ_7745c5c3_Err != nil {
@@ -474,7 +474,7 @@ func PalletProgressFragment(summary Summary) templ.Component {
 				var templ_7745c5c3_Var22 templ.SafeURL
 				templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.JoinURLErrs(fmt.Sprintf("/tasker/pallets/%d/receipt", p.ID))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/pallets/progress/palletProgress.templ`, Line: 192, Col: 109}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/pallets/progress/palletProgress.templ`, Line: 193, Col: 109}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var22))
 				if templ_7745c5c3_Err != nil {
@@ -498,7 +498,7 @@ func PalletProgressFragment(summary Summary) templ.Component {
 					var templ_7745c5c3_Var23 string
 					templ_7745c5c3_Var23, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", p.ID))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/pallets/progress/palletProgress.templ`, Line: 198, Col: 135}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/pallets/progress/palletProgress.templ`, Line: 199, Col: 135}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var23))
 					if templ_7745c5c3_Err != nil {
@@ -523,7 +523,7 @@ func PalletProgressFragment(summary Summary) templ.Component {
 					var templ_7745c5c3_Var24 templ.SafeURL
 					templ_7745c5c3_Var24, templ_7745c5c3_Err = templ.JoinURLErrs(fmt.Sprintf("/tasker/api/pallets/%d/close", p.ID))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/pallets/progress/palletProgress.templ`, Line: 205, Col: 91}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/pallets/progress/palletProgress.templ`, Line: 206, Col: 91}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var24))
 					if templ_7745c5c3_Err != nil {
@@ -541,7 +541,7 @@ func PalletProgressFragment(summary Summary) templ.Component {
 					var templ_7745c5c3_Var25 templ.SafeURL
 					templ_7745c5c3_Var25, templ_7745c5c3_Err = templ.JoinURLErrs(fmt.Sprintf("/tasker/api/pallets/%d/reopen", p.ID))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/pallets/progress/palletProgress.templ`, Line: 209, Col: 92}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/pallets/progress/palletProgress.templ`, Line: 210, Col: 92}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var25))
 					if templ_7745c5c3_Err != nil {
@@ -570,7 +570,7 @@ func PalletProgressFragment(summary Summary) templ.Component {
 			var templ_7745c5c3_Var26 string
 			templ_7745c5c3_Var26, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("P%08d", p.ID))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/pallets/progress/palletProgress.templ`, Line: 227, Col: 80}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/pallets/progress/palletProgress.templ`, Line: 228, Col: 80}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var26))
 			if templ_7745c5c3_Err != nil {
@@ -605,7 +605,7 @@ func PalletProgressFragment(summary Summary) templ.Component {
 			var templ_7745c5c3_Var29 string
 			templ_7745c5c3_Var29, templ_7745c5c3_Err = templ.JoinStringErrs(p.Status)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/pallets/progress/palletProgress.templ`, Line: 228, Col: 58}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/pallets/progress/palletProgress.templ`, Line: 229, Col: 58}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var29))
 			if templ_7745c5c3_Err != nil {
@@ -618,7 +618,7 @@ func PalletProgressFragment(summary Summary) templ.Component {
 			var templ_7745c5c3_Var30 string
 			templ_7745c5c3_Var30, templ_7745c5c3_Err = templ.JoinStringErrs(p.LineCount)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/pallets/progress/palletProgress.templ`, Line: 232, Col: 48}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/pallets/progress/palletProgress.templ`, Line: 233, Col: 48}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var30))
 			if templ_7745c5c3_Err != nil {
@@ -631,7 +631,7 @@ func PalletProgressFragment(summary Summary) templ.Component {
 			var templ_7745c5c3_Var31 string
 			templ_7745c5c3_Var31, templ_7745c5c3_Err = templ.JoinStringErrs(p.CreatedAt)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/pallets/progress/palletProgress.templ`, Line: 234, Col: 28}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/pallets/progress/palletProgress.templ`, Line: 235, Col: 28}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var31))
 			if templ_7745c5c3_Err != nil {
@@ -649,7 +649,7 @@ func PalletProgressFragment(summary Summary) templ.Component {
 				var templ_7745c5c3_Var32 string
 				templ_7745c5c3_Var32, templ_7745c5c3_Err = templ.JoinStringErrs(p.ClosedAt)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/pallets/progress/palletProgress.templ`, Line: 237, Col: 28}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/pallets/progress/palletProgress.templ`, Line: 238, Col: 28}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var32))
 				if templ_7745c5c3_Err != nil {
@@ -668,7 +668,7 @@ func PalletProgressFragment(summary Summary) templ.Component {
 				var templ_7745c5c3_Var33 string
 				templ_7745c5c3_Var33, templ_7745c5c3_Err = templ.JoinStringErrs(p.ReopenedAt)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/pallets/progress/palletProgress.templ`, Line: 241, Col: 30}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/pallets/progress/palletProgress.templ`, Line: 242, Col: 30}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var33))
 				if templ_7745c5c3_Err != nil {
@@ -691,7 +691,7 @@ func PalletProgressFragment(summary Summary) templ.Component {
 				var templ_7745c5c3_Var34 templ.SafeURL
 				templ_7745c5c3_Var34, templ_7745c5c3_Err = templ.JoinURLErrs(fmt.Sprintf("/tasker/pallets/%d/label", p.ID))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/pallets/progress/palletProgress.templ`, Line: 246, Col: 115}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/pallets/progress/palletProgress.templ`, Line: 247, Col: 115}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var34))
 				if templ_7745c5c3_Err != nil {
@@ -710,7 +710,7 @@ func PalletProgressFragment(summary Summary) templ.Component {
 				var templ_7745c5c3_Var35 templ.SafeURL
 				templ_7745c5c3_Var35, templ_7745c5c3_Err = templ.JoinURLErrs(fmt.Sprintf("/tasker/pallets/%d/content-label", p.ID))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/pallets/progress/palletProgress.templ`, Line: 249, Col: 118}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/pallets/progress/palletProgress.templ`, Line: 250, Col: 118}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var35))
 				if templ_7745c5c3_Err != nil {
@@ -729,7 +729,7 @@ func PalletProgressFragment(summary Summary) templ.Component {
 				var templ_7745c5c3_Var36 templ.SafeURL
 				templ_7745c5c3_Var36, templ_7745c5c3_Err = templ.JoinURLErrs(fmt.Sprintf("/tasker/pallets/%d/receipt", p.ID))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/pallets/progress/palletProgress.templ`, Line: 252, Col: 106}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/pallets/progress/palletProgress.templ`, Line: 253, Col: 106}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var36))
 				if templ_7745c5c3_Err != nil {
@@ -749,7 +749,7 @@ func PalletProgressFragment(summary Summary) templ.Component {
 					var templ_7745c5c3_Var37 string
 					templ_7745c5c3_Var37, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", p.ID))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/pallets/progress/palletProgress.templ`, Line: 256, Col: 141}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/pallets/progress/palletProgress.templ`, Line: 257, Col: 141}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var37))
 					if templ_7745c5c3_Err != nil {
@@ -770,7 +770,7 @@ func PalletProgressFragment(summary Summary) templ.Component {
 					var templ_7745c5c3_Var38 templ.SafeURL
 					templ_7745c5c3_Var38, templ_7745c5c3_Err = templ.JoinURLErrs(fmt.Sprintf("/tasker/api/pallets/%d/close", p.ID))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/pallets/progress/palletProgress.templ`, Line: 261, Col: 105}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/pallets/progress/palletProgress.templ`, Line: 262, Col: 105}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var38))
 					if templ_7745c5c3_Err != nil {
@@ -788,7 +788,7 @@ func PalletProgressFragment(summary Summary) templ.Component {
 					var templ_7745c5c3_Var39 templ.SafeURL
 					templ_7745c5c3_Var39, templ_7745c5c3_Err = templ.JoinURLErrs(fmt.Sprintf("/tasker/api/pallets/%d/reopen", p.ID))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/pallets/progress/palletProgress.templ`, Line: 265, Col: 106}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `frontend/pallets/progress/palletProgress.templ`, Line: 266, Col: 106}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var39))
 					if templ_7745c5c3_Err != nil {

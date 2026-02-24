@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"receipter/frontend/shared/context"
@@ -28,11 +29,11 @@ func UsersPageQueryHandler(db *sqlite.DB, _ *cache.UserCache) http.HandlerFunc {
 			return
 		}
 
-		status := r.URL.Query().Get("status")
-		errorMessage := r.URL.Query().Get("error")
+		data.Status = r.URL.Query().Get("status")
+		data.ErrorMessage = r.URL.Query().Get("error")
 
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		if err := UsersListPage(data, status, errorMessage).Render(r.Context(), w); err != nil {
+		if err := UsersListPage(data).Render(r.Context(), w); err != nil {
 			http.Error(w, "failed to render users page", http.StatusInternalServerError)
 			return
 		}
@@ -54,12 +55,22 @@ func CreateUserCommandHandler(db *sqlite.DB, _ *cache.UserCache) http.HandlerFun
 		username := strings.TrimSpace(r.FormValue("username"))
 		password := strings.TrimSpace(r.FormValue("password"))
 		role := strings.TrimSpace(r.FormValue("role"))
+		var clientProjectID *int64
+		if raw := strings.TrimSpace(r.FormValue("client_project_id")); raw != "" {
+			id, err := strconv.ParseInt(raw, 10, 64)
+			if err != nil || id <= 0 {
+				http.Redirect(w, r, "/tasker/admin/users?error="+url.QueryEscape("invalid client project"), http.StatusSeeOther)
+				return
+			}
+			clientProjectID = &id
+		}
 
-		if err := CreateUser(r.Context(), db, username, password, role); err != nil {
+		if err := CreateUser(r.Context(), db, username, password, role, clientProjectID); err != nil {
 			switch {
 			case errors.Is(err, ErrUsernameRequired),
 				errors.Is(err, ErrPasswordRequired),
 				errors.Is(err, ErrInvalidRole),
+				errors.Is(err, ErrClientProjectRequired),
 				errors.Is(err, ErrUsernameExists):
 				http.Redirect(w, r, "/tasker/admin/users?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
 				return

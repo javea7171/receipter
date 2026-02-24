@@ -184,7 +184,7 @@ func loginAs(t *testing.T, client *http.Client, baseURL, username, password stri
 		t.Fatalf("expected login 303, got %d", resp.StatusCode)
 	}
 	location := resp.Header.Get("Location")
-	if !strings.Contains(location, "/tasker/pallets/progress") && !strings.Contains(location, "/tasker/projects") {
+	if !strings.Contains(location, "/tasker/pallets/progress") && !strings.Contains(location, "/tasker/projects") && !strings.Contains(location, "/tasker/pallets/sku-view") {
 		t.Fatalf("unexpected login redirect: %s", resp.Header.Get("Location"))
 	}
 	_ = resp.Body.Close()
@@ -330,6 +330,36 @@ func userRoleByUsername(t *testing.T, db *sqlite.DB, username string) (role stri
 		t.Fatalf("load user role for %s: %v", username, err)
 	}
 	return role, true
+}
+
+func userIDByUsername(t *testing.T, db *sqlite.DB, username string) int64 {
+	t.Helper()
+	var id int64
+	err := db.WithReadTx(context.Background(), func(ctx context.Context, tx bun.Tx) error {
+		return tx.NewRaw(`SELECT id FROM users WHERE LOWER(username) = LOWER(?) LIMIT 1`, username).Scan(ctx, &id)
+	})
+	if err != nil {
+		t.Fatalf("load user id for %s: %v", username, err)
+	}
+	return id
+}
+
+func seedClientUser(t *testing.T, db *sqlite.DB, username, password string, projectID int64) int64 {
+	t.Helper()
+	if err := login.UpsertUserPasswordHash(context.Background(), db, username, "scanner", password); err != nil {
+		t.Fatalf("seed base user for client: %v", err)
+	}
+	err := db.WithWriteTx(context.Background(), func(ctx context.Context, tx bun.Tx) error {
+		_, err := tx.ExecContext(ctx, `
+UPDATE users
+SET role = 'client', client_project_id = ?, updated_at = CURRENT_TIMESTAMP
+WHERE LOWER(username) = LOWER(?)`, projectID, username)
+		return err
+	})
+	if err != nil {
+		t.Fatalf("promote user to client role: %v", err)
+	}
+	return userIDByUsername(t, db, username)
 }
 
 func TestCSRFPostWithoutTokenRejected(t *testing.T) {
@@ -1129,6 +1159,7 @@ func TestPalletContentLabelFragmentIncludesScannerAndMorphTarget(t *testing.T) {
 	resp = postForm(t, scannerClient, env.server.URL, "/tasker/api/pallets/1/receipts", url.Values{
 		"sku":          {"SKU-VIEW"},
 		"description":  {"View Item"},
+		"comment":      {"detail comment"},
 		"qty":          {"2"},
 		"batch_number": {"B1"},
 		"expiry_date":  {"2028-01-01"},
@@ -1158,11 +1189,23 @@ func TestPalletContentLabelFragmentIncludesScannerAndMorphTarget(t *testing.T) {
 	if !strings.Contains(text, "scanner1") {
 		t.Fatalf("expected scanner username in content fragment")
 	}
+	if !strings.Contains(text, "/tasker/pallets/1/content-line/1") {
+		t.Fatalf("expected line detail view link in content fragment")
+	}
 	if !strings.Contains(text, ">Case Size<") {
 		t.Fatalf("expected case size column in content fragment")
 	}
 	if !strings.Contains(text, ">Damaged<") {
 		t.Fatalf("expected damaged column in content fragment")
+	}
+	if !strings.Contains(text, ">Photo<") {
+		t.Fatalf("expected photo column in content fragment")
+	}
+	if !strings.Contains(text, ">Expired<") {
+		t.Fatalf("expected expired column in content fragment")
+	}
+	if !strings.Contains(text, `option value="expired"`) {
+		t.Fatalf("expected expired filter option in content fragment")
 	}
 	if !strings.Contains(text, "/tasker/exports/pallet/1.csv?project_id=1") {
 		t.Fatalf("expected admin content fragment to include pallet export link")
@@ -1175,6 +1218,26 @@ func TestPalletContentLabelFragmentIncludesScannerAndMorphTarget(t *testing.T) {
 	}
 	if !strings.Contains(text, "data-on-interval__duration.3s") {
 		t.Fatalf("expected auto-refresh interval in content fragment")
+	}
+
+	resp = get(t, adminClient, env.server.URL, "/tasker/pallets/1/content-line/1")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected line detail status 200, got %d", resp.StatusCode)
+	}
+	detailBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read line detail body: %v", err)
+	}
+	_ = resp.Body.Close()
+	detailText := string(detailBody)
+	if !strings.Contains(detailText, "Line Detail") {
+		t.Fatalf("expected line detail heading")
+	}
+	if !strings.Contains(detailText, "detail comment") {
+		t.Fatalf("expected line detail comment text")
+	}
+	if !strings.Contains(detailText, "Photos") {
+		t.Fatalf("expected photos section in line detail")
 	}
 }
 
@@ -1464,7 +1527,7 @@ func TestAdminStockImportListAndDelete(t *testing.T) {
 		"/tasker/stock/import",
 		"file",
 		"stock.csv",
-		[]byte("notes,description,sku,ignored\nn1,Alpha,SKU-A,x\nn2,Beta,SKU-B,y\nn3,Gamma,SKU-C,z\n"),
+		[]byte("notes,uom,description,sku,ignored\nn1,unit,Alpha,SKU-A,x\nn2,packs of 1000,Beta,SKU-B,y\nn3,,Gamma,SKU-C,z\n"),
 	)
 	if resp.StatusCode != http.StatusSeeOther {
 		t.Fatalf("expected stock import 303, got %d", resp.StatusCode)
@@ -1545,10 +1608,10 @@ func TestStockImportInvalidHeaderShowsErrorMessage(t *testing.T) {
 	}
 	_ = resp.Body.Close()
 	text := string(body)
-	if !strings.Contains(text, "Error: invalid CSV header; expected sku,description") {
+	if !strings.Contains(text, "Error: invalid CSV header; expected sku,description,uom") {
 		t.Fatalf("expected invalid header error banner on import page")
 	}
-	if !strings.Contains(text, "Required header row") || !strings.Contains(text, "sku,description") {
+	if !strings.Contains(text, "Required header row") || !strings.Contains(text, "sku,description,uom") {
 		t.Fatalf("expected required header guidance on import page")
 	}
 }
@@ -1564,7 +1627,7 @@ func TestStockSearchEndpointFuzzyMatchesSkuAndDescription(t *testing.T) {
 		"/tasker/stock/import",
 		"file",
 		"stock.csv",
-		[]byte("sku,description\nAA-200,Apple Juice\nZZ-100,Blue Berry\n"),
+		[]byte("sku,description,uom\nAA-200,Apple Juice,unit\nZZ-100,Blue Berry,packs of 1000\n"),
 	)
 	if resp.StatusCode != http.StatusSeeOther {
 		t.Fatalf("expected stock import 303, got %d", resp.StatusCode)
@@ -1611,7 +1674,7 @@ func TestStockSearchOptionsEndpointRendersSuggestionMarkup(t *testing.T) {
 		"/tasker/stock/import",
 		"file",
 		"stock.csv",
-		[]byte("sku,description\nAA-200,Apple Juice\nZZ-100,Blue Berry\n"),
+		[]byte("sku,description,uom\nAA-200,Apple Juice,unit\nZZ-100,Blue Berry,packs of 1000\n"),
 	)
 	if resp.StatusCode != http.StatusSeeOther {
 		t.Fatalf("expected stock import 303, got %d", resp.StatusCode)
@@ -1637,6 +1700,9 @@ func TestStockSearchOptionsEndpointRendersSuggestionMarkup(t *testing.T) {
 	}
 	if !strings.Contains(text, `data-sku="ZZ-100"`) {
 		t.Fatalf("expected matching sku in options response, got %s", text)
+	}
+	if !strings.Contains(text, `data-uom="packs of 1000"`) {
+		t.Fatalf("expected suggestion to include uom metadata, got %s", text)
 	}
 	if !strings.Contains(text, "ZZ-100 - Blue Berry") {
 		t.Fatalf("expected sku label text in options response, got %s", text)
@@ -1706,6 +1772,171 @@ func TestBulkPalletLabelGenerationReturnsSinglePDF(t *testing.T) {
 	}
 }
 
+func TestClientRoleSkuOnlyNavigationCommentAndExports(t *testing.T) {
+	env, _ := setupIntegrationServer(t)
+	adminClient := newHTTPClient(t)
+	clientHTTP := newHTTPClient(t)
+
+	clientPassword := "Client123!Receipter"
+	clientUserID := seedClientUser(t, env.db, "client1", clientPassword, 1)
+
+	loginAs(t, adminClient, env.server.URL, "admin", "Admin123!Receipter")
+	resp := postForm(t, adminClient, env.server.URL, "/tasker/pallets/new", nil)
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected admin create pallet 303, got %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+
+	resp = postForm(t, adminClient, env.server.URL, "/tasker/api/pallets/1/receipts", url.Values{
+		"sku":          {"SKU-C1"},
+		"description":  {"Client SKU"},
+		"qty":          {"5"},
+		"batch_number": {"CB1"},
+		"expiry_date":  {"2029-01-01"},
+	})
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected admin receipt create 303, got %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+
+	resp = get(t, clientHTTP, env.server.URL, "/login")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected client login page 200, got %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+
+	resp = postForm(t, clientHTTP, env.server.URL, "/login", url.Values{
+		"username": {"client1"},
+		"password": {clientPassword},
+	})
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected client login 303, got %d", resp.StatusCode)
+	}
+	if !strings.Contains(resp.Header.Get("Location"), "/tasker/pallets/sku-view") {
+		t.Fatalf("expected client redirect to sku view, got %s", resp.Header.Get("Location"))
+	}
+	_ = resp.Body.Close()
+
+	resp = get(t, clientHTTP, env.server.URL, "/tasker/pallets/sku-view")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected client sku view 200, got %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read client sku view body: %v", err)
+	}
+	_ = resp.Body.Close()
+	text := string(body)
+	if !strings.Contains(text, "/tasker/pallets/sku-view") {
+		t.Fatalf("expected sku view link in client navigation")
+	}
+	if strings.Contains(text, "/tasker/projects") || strings.Contains(text, "/tasker/scan/pallet") || strings.Contains(text, "/tasker/stock/import") || strings.Contains(text, "/tasker/exports") || strings.Contains(text, "/tasker/admin/users") {
+		t.Fatalf("client navigation should only expose sku view and logout")
+	}
+
+	resp = get(t, clientHTTP, env.server.URL, "/tasker/pallets/1/content-label")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected client pallet content view 200, got %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+
+	resp = get(t, clientHTTP, env.server.URL, "/tasker/projects")
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected client projects denied 303, got %d", resp.StatusCode)
+	}
+	if !strings.Contains(resp.Header.Get("Location"), "/login") {
+		t.Fatalf("expected client projects redirect to login, got %s", resp.Header.Get("Location"))
+	}
+	_ = resp.Body.Close()
+
+	resp = postForm(t, clientHTTP, env.server.URL, "/tasker/pallets/sku-view/detail/comment", url.Values{
+		"sku":       {"SKU-C1"},
+		"uom":       {""},
+		"batch":     {"CB1"},
+		"expiry":    {"2029-01-01"},
+		"pallet_id": {"1"},
+		"comment":   {"Client side note"},
+	})
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected client comment create 303, got %d", resp.StatusCode)
+	}
+	if !strings.Contains(resp.Header.Get("Location"), "status=comment+added") {
+		t.Fatalf("expected client comment success redirect, got %s", resp.Header.Get("Location"))
+	}
+	_ = resp.Body.Close()
+
+	var commentCount int64
+	var createdBy int64
+	var palletID int64
+	err = env.db.WithReadTx(context.Background(), func(ctx context.Context, tx bun.Tx) error {
+		if err := tx.NewRaw(`
+SELECT COUNT(*)
+FROM sku_client_comments
+WHERE project_id = 1 AND sku = 'SKU-C1' AND COALESCE(batch_number, '') = 'CB1' AND pallet_id = 1`).Scan(ctx, &commentCount); err != nil {
+			return err
+		}
+		return tx.NewRaw(`
+SELECT created_by_user_id, pallet_id
+FROM sku_client_comments
+WHERE project_id = 1 AND sku = 'SKU-C1'
+ORDER BY id DESC
+LIMIT 1`).Scan(ctx, &createdBy, &palletID)
+	})
+	if err != nil {
+		t.Fatalf("verify client comment rows: %v", err)
+	}
+	if commentCount != 1 {
+		t.Fatalf("expected 1 client comment row, got %d", commentCount)
+	}
+	if createdBy != clientUserID {
+		t.Fatalf("expected comment created_by_user_id=%d, got %d", clientUserID, createdBy)
+	}
+	if palletID != 1 {
+		t.Fatalf("expected comment pallet_id=1, got %d", palletID)
+	}
+
+	resp = get(t, adminClient, env.server.URL, "/tasker/pallets/sku-view?filter=client_comment")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected admin client-comment filter view 200, got %d", resp.StatusCode)
+	}
+	body, err = io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read admin client-comment filter body: %v", err)
+	}
+	_ = resp.Body.Close()
+	if !strings.Contains(string(body), "SKU-C1") {
+		t.Fatalf("expected SKU-C1 in admin client-comment filtered view")
+	}
+
+	resp = get(t, clientHTTP, env.server.URL, "/tasker/pallets/sku-view/export-summary.csv")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected client summary export 200, got %d", resp.StatusCode)
+	}
+	body, err = io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read client summary export body: %v", err)
+	}
+	_ = resp.Body.Close()
+	csvText := string(body)
+	if !strings.Contains(csvText, "has_client_comment") || !strings.Contains(csvText, "SKU-C1") {
+		t.Fatalf("expected client summary export to include header and SKU row, got %s", csvText)
+	}
+
+	resp = get(t, clientHTTP, env.server.URL, "/tasker/pallets/sku-view/export-detail.csv")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected client detail export 200, got %d", resp.StatusCode)
+	}
+	body, err = io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read client detail export body: %v", err)
+	}
+	_ = resp.Body.Close()
+	csvText = string(body)
+	if !strings.Contains(csvText, "receipt_id") || !strings.Contains(csvText, "SKU-C1") {
+		t.Fatalf("expected detail export header and row, got %s", csvText)
+	}
+}
+
 func TestServerEndToEndCoreFlow(t *testing.T) {
 	env, client := setupIntegrationServer(t)
 	loginAs(t, client, env.server.URL, "admin", "Admin123!Receipter")
@@ -1766,7 +1997,7 @@ func TestServerEndToEndCoreFlow(t *testing.T) {
 	_ = resp.Body.Close()
 
 	csvText := string(body)
-	if !strings.Contains(csvText, "pallet_id,sku,description,qty,case_size,item_barcode,carton_barcode,expiry,batch_number") {
+	if !strings.Contains(csvText, "pallet_id,sku,description,uom,qty,case_size,item_barcode,carton_barcode,expiry,batch_number") {
 		t.Fatalf("missing csv header")
 	}
 	if !strings.Contains(csvText, "SKU-1") {

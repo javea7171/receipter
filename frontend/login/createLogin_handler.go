@@ -8,6 +8,7 @@ import (
 
 	"receipter/infrastructure/cache"
 	projectinfra "receipter/infrastructure/project"
+	"receipter/infrastructure/rbac"
 	sessioncookie "receipter/infrastructure/session"
 	"receipter/infrastructure/sqlite"
 	"receipter/models"
@@ -38,10 +39,24 @@ func CreateLoginHandler(db *sqlite.DB, sessionCache *cache.UserSessionCache, use
 			return
 		}
 
-		activeProjectID, err := projectinfra.ResolveSessionActiveProjectID(r.Context(), db, nil)
-		if err != nil {
-			http.Redirect(w, r, "/login?error="+url.QueryEscape("failed to resolve active project"), http.StatusSeeOther)
-			return
+		var activeProjectID *int64
+		if user.Role == rbac.RoleClient {
+			if user.ClientProjectID == nil || *user.ClientProjectID <= 0 {
+				http.Redirect(w, r, "/login?error="+url.QueryEscape("client user has no assigned project"), http.StatusSeeOther)
+				return
+			}
+			if _, err := projectinfra.LoadByID(r.Context(), db, *user.ClientProjectID); err != nil {
+				http.Redirect(w, r, "/login?error="+url.QueryEscape("assigned client project not found"), http.StatusSeeOther)
+				return
+			}
+			activeProjectID = user.ClientProjectID
+		} else {
+			var err error
+			activeProjectID, err = projectinfra.ResolveSessionActiveProjectID(r.Context(), db, nil)
+			if err != nil {
+				http.Redirect(w, r, "/login?error="+url.QueryEscape("failed to resolve active project"), http.StatusSeeOther)
+				return
+			}
 		}
 
 		session := newSession(user, activeProjectID)
@@ -54,7 +69,11 @@ func CreateLoginHandler(db *sqlite.DB, sessionCache *cache.UserSessionCache, use
 		userCache.Add(user.Username, user)
 
 		http.SetCookie(w, sessioncookie.SessionCookie(session.ID, 12*60*60))
-		http.Redirect(w, r, "/tasker/projects", http.StatusSeeOther)
+		redirectTo := "/tasker/projects"
+		if user.Role == rbac.RoleClient {
+			redirectTo = "/tasker/pallets/sku-view"
+		}
+		http.Redirect(w, r, redirectTo, http.StatusSeeOther)
 	}
 }
 

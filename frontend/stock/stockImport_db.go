@@ -26,6 +26,7 @@ type StockRecord struct {
 	ID          int64  `bun:"id"`
 	SKU         string `bun:"sku"`
 	Description string `bun:"description"`
+	UOM         string `bun:"uom"`
 	CreatedAt   string `bun:"created_at"`
 	UpdatedAt   string `bun:"updated_at"`
 }
@@ -34,7 +35,7 @@ func ListStockRecords(ctx context.Context, db *sqlite.DB, projectID int64) ([]St
 	rows := make([]StockRecord, 0)
 	err := db.WithReadTx(ctx, func(ctx context.Context, tx bun.Tx) error {
 		return tx.NewRaw(`
-SELECT id, sku, description,
+SELECT id, sku, description, COALESCE(uom, '') AS uom,
        strftime('%d/%m/%Y %H:%M', created_at) AS created_at,
        strftime('%d/%m/%Y %H:%M', updated_at) AS updated_at
 FROM stock_items
@@ -53,11 +54,11 @@ func ImportCSV(ctx context.Context, db *sqlite.DB, auditSvc *audit.Service, user
 	if err != nil {
 		return summary, fmt.Errorf("read header: %w", err)
 	}
-	skuCol, descCol, ok := resolveImportColumns(header)
+	skuCol, descCol, uomCol, ok := resolveImportColumns(header)
 	if !ok {
-		return summary, fmt.Errorf("invalid CSV header; expected sku,description")
+		return summary, fmt.Errorf("invalid CSV header; expected sku,description,uom")
 	}
-	minCols := maxInt(skuCol, descCol) + 1
+	minCols := maxInt(skuCol, maxInt(descCol, uomCol)) + 1
 
 	err = db.WithWriteTx(ctx, func(ctx context.Context, tx bun.Tx) error {
 		for {
@@ -75,6 +76,7 @@ func ImportCSV(ctx context.Context, db *sqlite.DB, auditSvc *audit.Service, user
 			}
 			sku := strings.TrimSpace(record[skuCol])
 			desc := strings.TrimSpace(record[descCol])
+			uom := strings.TrimSpace(record[uomCol])
 			if sku == "" || desc == "" {
 				summary.Errors++
 				continue
@@ -91,11 +93,12 @@ func ImportCSV(ctx context.Context, db *sqlite.DB, auditSvc *audit.Service, user
 			}
 
 			if _, err := tx.ExecContext(ctx, `
-INSERT INTO stock_items (project_id, sku, description, created_at, updated_at)
-VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+INSERT INTO stock_items (project_id, sku, description, uom, created_at, updated_at)
+VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 ON CONFLICT(project_id, sku) DO UPDATE SET
   description = excluded.description,
-  updated_at = CURRENT_TIMESTAMP`, projectID, sku, desc); err != nil {
+  uom = excluded.uom,
+  updated_at = CURRENT_TIMESTAMP`, projectID, sku, desc, uom); err != nil {
 				summary.Errors++
 			}
 		}
@@ -118,9 +121,10 @@ VALUES (?, ?, ?, ?, ?)`, userID, projectID, summary.Inserted, summary.Updated, s
 	return summary, err
 }
 
-func resolveImportColumns(header []string) (skuCol int, descCol int, ok bool) {
+func resolveImportColumns(header []string) (skuCol int, descCol int, uomCol int, ok bool) {
 	skuCol = -1
 	descCol = -1
+	uomCol = -1
 	for i, raw := range header {
 		key := normalizeCSVHeader(raw)
 		if key == "sku" && skuCol < 0 {
@@ -129,11 +133,14 @@ func resolveImportColumns(header []string) (skuCol int, descCol int, ok bool) {
 		if key == "description" && descCol < 0 {
 			descCol = i
 		}
+		if key == "uom" && uomCol < 0 {
+			uomCol = i
+		}
 	}
-	if skuCol < 0 || descCol < 0 {
-		return 0, 0, false
+	if skuCol < 0 || descCol < 0 || uomCol < 0 {
+		return 0, 0, 0, false
 	}
-	return skuCol, descCol, true
+	return skuCol, descCol, uomCol, true
 }
 
 func normalizeCSVHeader(value string) string {
@@ -170,7 +177,7 @@ func DeleteStockItems(ctx context.Context, db *sqlite.DB, auditSvc *audit.Servic
 		for _, id := range filtered {
 			var before models.StockItem
 			if err := tx.NewRaw(`
-SELECT id, sku, description, created_at, updated_at
+SELECT id, sku, description, uom, created_at, updated_at
 FROM stock_items
 WHERE id = ? AND project_id = ?`, id, projectID).Scan(ctx, &before); err != nil {
 				if errors.Is(err, sql.ErrNoRows) {

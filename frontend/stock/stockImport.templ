@@ -55,7 +55,7 @@ templ StockImportPage(data PageData) {
 							<form method="post" action={ fmt.Sprintf("/tasker/stock/import?project_id=%d", data.ProjectID) } enctype="multipart/form-data" class="space-y-4">
 								<fieldset class="fieldset w-full">
 									<legend class="fieldset-legend text-base font-medium">CSV file</legend>
-									<p class="text-xs text-base-content/70">Required header row: <span class="font-mono">sku,description</span></p>
+									<p class="text-xs text-base-content/70">Required header row: <span class="font-mono">sku,description,uom</span> (uom can be blank in data rows)</p>
 										<input class="file-input file-input-bordered file-input-lg w-full" type="file" name="file" accept=".csv" disabled?={ !canModifyStock(data.ProjectStatus) }/>
 								</fieldset>
 								<button class="btn btn-primary btn-lg w-full" type="submit" disabled?={ !canModifyStock(data.ProjectStatus) }>
@@ -94,6 +94,7 @@ templ StockImportPage(data PageData) {
 												<th></th>
 												<th>SKU</th>
 												<th>Description</th>
+												<th>UOM</th>
 												<th>Created</th>
 												<th>Updated</th>
 												<th></th>
@@ -107,6 +108,7 @@ templ StockImportPage(data PageData) {
 													</td>
 													<td class="font-mono font-semibold">{ record.SKU }</td>
 													<td>{ record.Description }</td>
+													<td>{ record.UOM }</td>
 													<td class="text-sm">{ record.CreatedAt }</td>
 													<td class="text-sm">{ record.UpdatedAt }</td>
 													<td class="text-right">

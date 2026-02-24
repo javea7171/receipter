@@ -1,0 +1,464 @@
+package progress
+
+import (
+	"fmt"
+	"net/url"
+	sharedhtml "receipter/frontend/shared/html"
+)
+
+func skuFilterSelected(current, value string) bool {
+	return current == value
+}
+
+func skuSummaryURL(filter string) string {
+	q := url.Values{}
+	if normalizeSKUFilter(filter) != "all" {
+		q.Set("filter", normalizeSKUFilter(filter))
+	}
+	encoded := q.Encode()
+	if encoded == "" {
+		return "/tasker/pallets/sku-view"
+	}
+	return "/tasker/pallets/sku-view?" + encoded
+}
+
+func skuSummaryExportURL(filter string) string {
+	q := url.Values{}
+	if normalizeSKUFilter(filter) != "all" {
+		q.Set("filter", normalizeSKUFilter(filter))
+	}
+	encoded := q.Encode()
+	if encoded == "" {
+		return "/tasker/pallets/sku-view/export-summary.csv"
+	}
+	return "/tasker/pallets/sku-view/export-summary.csv?" + encoded
+}
+
+func skuDetailExportURL(filter string) string {
+	q := url.Values{}
+	if normalizeSKUFilter(filter) != "all" {
+		q.Set("filter", normalizeSKUFilter(filter))
+	}
+	encoded := q.Encode()
+	if encoded == "" {
+		return "/tasker/pallets/sku-view/export-detail.csv"
+	}
+	return "/tasker/pallets/sku-view/export-detail.csv?" + encoded
+}
+
+func skuDetailURL(row SKUSummaryRow, filter string) string {
+	q := url.Values{}
+	q.Set("sku", row.SKU)
+	q.Set("uom", row.UOM)
+	q.Set("batch", row.BatchNumber)
+	q.Set("expiry", row.ExpiryDateISO)
+	if normalizeSKUFilter(filter) != "all" {
+		q.Set("filter", normalizeSKUFilter(filter))
+	}
+	return "/tasker/pallets/sku-view/detail?" + q.Encode()
+}
+
+func palletCode(id int64) string {
+	return fmt.Sprintf("P%08d", id)
+}
+
+func commentPalletSelected(current, value int64) bool {
+	return current == value
+}
+
+templ SKUViewPage(data SKUSummaryPageData) {
+	<!doctype html>
+	<html data-theme="light">
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+			<title>SKU View</title>
+			<link rel="stylesheet" href="/assets/app.css"/>
+		</head>
+		<body>
+			if data.IsClient {
+				@sharedhtml.TopBarClient("SKU View")
+			} else {
+				@sharedhtml.TopBarWithRole("SKU View", data.IsAdmin)
+			}
+			<main class="container-shell space-y-4">
+				<div class="page-header">
+					<div>
+						<h1 class="text-xl font-bold sm:text-2xl">SKU View</h1>
+						<p class="text-sm text-base-content/60">Project: { data.ProjectName } ({ data.ProjectClientName })</p>
+						if data.ProjectStatus != "active" {
+							<p class="text-xs text-warning mt-1">Inactive project. View-only access.</p>
+						}
+					</div>
+					<div class="flex flex-wrap items-end gap-2">
+						<form method="get" action="/tasker/pallets/sku-view" class="flex items-end gap-2">
+							<fieldset class="fieldset">
+								<legend class="fieldset-legend text-xs uppercase tracking-wide">Filter</legend>
+								<select class="select select-bordered select-sm" name="filter" onchange="this.form.submit()">
+									<option value="all" selected?={ skuFilterSelected(data.Filter, "all") }>All</option>
+									<option value="success" selected?={ skuFilterSelected(data.Filter, "success") }>Success</option>
+									<option value="unknown" selected?={ skuFilterSelected(data.Filter, "unknown") }>Unknown</option>
+									<option value="damaged" selected?={ skuFilterSelected(data.Filter, "damaged") }>Damaged</option>
+									<option value="expired" selected?={ skuFilterSelected(data.Filter, "expired") }>Expired</option>
+									if data.IsAdmin {
+										<option value="client_comment" selected?={ skuFilterSelected(data.Filter, "client_comment") }>Client Comment</option>
+									}
+								</select>
+							</fieldset>
+						</form>
+						if data.CanExport {
+							<a class="btn btn-outline btn-sm" href={ skuSummaryExportURL(data.Filter) }>Export Summary CSV</a>
+							<a class="btn btn-outline btn-sm" href={ skuDetailExportURL(data.Filter) }>Export Detailed CSV</a>
+						}
+						if !data.IsClient {
+							<a class="btn btn-ghost btn-sm" href="/tasker/pallets/progress">Back</a>
+						}
+					</div>
+				</div>
+
+				<section class="page-card">
+					<div class="page-card-body space-y-3">
+						<h2 class="section-title">Receipted SKUs</h2>
+						if len(data.Rows) == 0 {
+							<div role="alert" class="alert alert-info alert-soft">
+								<span>No SKU rows for this filter.</span>
+							</div>
+						} else {
+							<div class="hidden lg:block overflow-x-auto">
+								<table class="table table-zebra">
+									<thead>
+										<tr>
+											<th>SKU</th>
+											<th>Description</th>
+											<th>Unit of Measure</th>
+											<th>Batch</th>
+											<th>Expiry</th>
+											<th>Expired</th>
+											<th>Total</th>
+											<th>Success</th>
+											<th>Unknown</th>
+											<th>Damaged</th>
+											<th>Comment</th>
+											<th>Client Comment</th>
+											<th>Photo</th>
+											<th></th>
+										</tr>
+									</thead>
+									<tbody>
+										for _, row := range data.Rows {
+											<tr>
+												<td class="font-mono font-semibold"><a class="link link-primary" href={ skuDetailURL(row, data.Filter) }>{ row.SKU }</a></td>
+												<td>{ row.Description }</td>
+												<td>{ row.UOM }</td>
+												<td>{ row.BatchNumber }</td>
+												<td>{ row.ExpiryDateUK }</td>
+												<td>
+													if row.IsExpired {
+														<span class="badge badge-error badge-sm">Yes</span>
+													} else {
+														<span class="text-base-content/40">No</span>
+													}
+												</td>
+												<td class="font-semibold">{ row.TotalQty }</td>
+												<td>{ row.SuccessQty }</td>
+												<td>{ row.UnknownQty }</td>
+												<td>{ row.DamagedQty }</td>
+												<td>
+													if row.HasComments {
+														<span class="badge badge-ghost badge-sm">Yes</span>
+													} else {
+														<span class="text-base-content/30">--</span>
+													}
+												</td>
+												<td>
+													if row.HasClientComments {
+														<span class="badge badge-info badge-sm">Yes</span>
+													} else {
+														<span class="text-base-content/30">--</span>
+													}
+												</td>
+												<td>
+													if row.HasPhotos {
+														<span class="badge badge-ghost badge-sm">Yes</span>
+													} else {
+														<span class="text-base-content/30">--</span>
+													}
+												</td>
+												<td>
+													<a class="btn btn-soft btn-info btn-sm" href={ skuDetailURL(row, data.Filter) }>View</a>
+												</td>
+											</tr>
+										}
+									</tbody>
+								</table>
+							</div>
+
+							<div class="grid gap-3 lg:hidden">
+								for _, row := range data.Rows {
+									<div class="card card-border bg-base-100 shadow-sm">
+										<div class="card-body p-4 gap-2">
+											<div class="flex items-start justify-between gap-2">
+												<div class="min-w-0">
+													<div class="font-mono font-bold truncate">{ row.SKU }</div>
+													<div class="text-sm text-base-content/70 truncate">{ row.Description }</div>
+												</div>
+												<span class="badge badge-neutral shrink-0">Qty { row.TotalQty }</span>
+											</div>
+											<div class="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+												<div class="text-base-content/60">Unit of Measure</div>
+												<div>{ row.UOM }</div>
+												<div class="text-base-content/60">Batch</div>
+												<div>{ row.BatchNumber }</div>
+												<div class="text-base-content/60">Expiry</div>
+												<div>{ row.ExpiryDateUK }</div>
+												<div class="text-base-content/60">Expired</div>
+												<div>
+													if row.IsExpired {
+														<span class="text-error font-semibold">Yes</span>
+													} else {
+														No
+													}
+												</div>
+												<div class="text-base-content/60">Success</div>
+												<div>{ row.SuccessQty }</div>
+												<div class="text-base-content/60">Unknown</div>
+												<div>{ row.UnknownQty }</div>
+												<div class="text-base-content/60">Damaged</div>
+												<div>{ row.DamagedQty }</div>
+												<div class="text-base-content/60">Comment</div>
+												<div>{ fmt.Sprintf("%t", row.HasComments) }</div>
+												<div class="text-base-content/60">Client Comment</div>
+												<div>{ fmt.Sprintf("%t", row.HasClientComments) }</div>
+												<div class="text-base-content/60">Photo</div>
+												<div>{ fmt.Sprintf("%t", row.HasPhotos) }</div>
+											</div>
+											<div class="card-actions mt-2">
+												<a class="btn btn-soft btn-info btn-sm w-full" href={ skuDetailURL(row, data.Filter) }>View Details</a>
+											</div>
+										</div>
+									</div>
+								}
+							</div>
+						}
+					</div>
+				</section>
+			</main>
+			if data.IsClient {
+				@sharedhtml.DockClient(sharedhtml.NavSKU)
+			} else {
+				@sharedhtml.DockWithRole(sharedhtml.NavProjects, data.IsAdmin)
+			}
+			@templ.Raw(sharedhtml.CSRFFormScript())
+		</body>
+	</html>
+}
+
+templ SKUDetailPage(data SKUDetailedPageData) {
+	<!doctype html>
+	<html data-theme="light">
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+			<title>SKU Detail</title>
+			<link rel="stylesheet" href="/assets/app.css"/>
+		</head>
+		<body>
+			if data.IsClient {
+				@sharedhtml.TopBarClient("SKU Detail")
+			} else {
+				@sharedhtml.TopBarWithRole("SKU Detail", data.IsAdmin)
+			}
+			<main class="container-shell space-y-4">
+				<div class="page-header">
+					<div>
+						<h1 class="text-xl font-bold sm:text-2xl">SKU Detail</h1>
+						<p class="text-sm text-base-content/60">
+							<span class="font-mono">{ data.Instance.SKU }</span> | Batch { data.Instance.BatchNumber } | Expiry { data.Instance.ExpiryDateUK }
+						</p>
+						<p class="text-sm text-base-content/60">Project: { data.ProjectName } ({ data.ProjectClientName })</p>
+						if data.Instance.IsExpired {
+							<p class="text-sm text-error font-semibold">Expired instance</p>
+						}
+					</div>
+					<div class="flex gap-2">
+						<a class="btn btn-ghost btn-sm" href={ skuSummaryURL(data.Filter) }>Back to SKU View</a>
+					</div>
+				</div>
+
+				if data.Error != "" {
+					<div role="alert" class="alert alert-error alert-soft"><span>{ data.Error }</span></div>
+				}
+				if data.Message != "" {
+					<div role="alert" class="alert alert-info alert-soft"><span>{ data.Message }</span></div>
+				}
+
+				<section class="grid grid-cols-2 lg:grid-cols-6 gap-3">
+					<div class="stats bg-base-100 border border-base-300 shadow-sm">
+						<div class="stat px-4 py-3">
+							<div class="stat-title text-xs uppercase tracking-wide">Total</div>
+							<div class="stat-value text-2xl">{ data.Instance.TotalQty }</div>
+						</div>
+					</div>
+					<div class="stats bg-base-100 border border-base-300 shadow-sm">
+						<div class="stat px-4 py-3">
+							<div class="stat-title text-xs uppercase tracking-wide">Success</div>
+							<div class="stat-value text-2xl text-success">{ data.Instance.SuccessQty }</div>
+						</div>
+					</div>
+					<div class="stats bg-base-100 border border-base-300 shadow-sm">
+						<div class="stat px-4 py-3">
+							<div class="stat-title text-xs uppercase tracking-wide">Unknown</div>
+							<div class="stat-value text-2xl text-warning">{ data.Instance.UnknownQty }</div>
+						</div>
+					</div>
+					<div class="stats bg-base-100 border border-base-300 shadow-sm">
+						<div class="stat px-4 py-3">
+							<div class="stat-title text-xs uppercase tracking-wide">Damaged</div>
+							<div class="stat-value text-2xl text-error">{ data.Instance.DamagedQty }</div>
+						</div>
+					</div>
+					<div class="stats bg-base-100 border border-base-300 shadow-sm">
+						<div class="stat px-4 py-3">
+							<div class="stat-title text-xs uppercase tracking-wide">Unit of Measure</div>
+							<div class="stat-value text-lg">{ data.Instance.UOM }</div>
+						</div>
+					</div>
+					<div class="stats bg-base-100 border border-base-300 shadow-sm">
+						<div class="stat px-4 py-3">
+							<div class="stat-title text-xs uppercase tracking-wide">Client Comments</div>
+							if data.Instance.HasClientComments {
+								<div class="stat-value text-xl text-info">Yes</div>
+							} else {
+								<div class="stat-value text-xl">No</div>
+							}
+						</div>
+					</div>
+				</section>
+
+					<section class="page-card">
+						<div class="page-card-body space-y-3">
+							<h2 class="section-title">Client Comments By Pallet</h2>
+							if len(data.ClientComments) == 0 {
+								<div role="alert" class="alert alert-info alert-soft">
+									<span>No client comments for this SKU instance.</span>
+								</div>
+							} else {
+								<div class="space-y-2">
+									for _, c := range data.ClientComments {
+										<div class="rounded-lg border border-base-300 p-3">
+											<div class="text-xs text-base-content/60 mb-1">{ palletCode(c.PalletID) }</div>
+											<div class="text-sm break-words">{ c.Comment }</div>
+											<div class="text-xs text-base-content/60 mt-1">{ c.Actor } | { c.CreatedAtUK }</div>
+										</div>
+									}
+								</div>
+							}
+							if data.CanAddClientComment {
+								<form method="post" action="/tasker/pallets/sku-view/detail/comment" class="space-y-2">
+									<input type="hidden" name="sku" value={ data.Instance.SKU }/>
+									<input type="hidden" name="uom" value={ data.Instance.UOM }/>
+									<input type="hidden" name="batch" value={ data.Instance.BatchNumber }/>
+									<input type="hidden" name="expiry" value={ data.Instance.ExpiryDateISO }/>
+									<input type="hidden" name="filter" value={ data.Filter }/>
+									<fieldset class="fieldset">
+										<legend class="fieldset-legend">Pallet</legend>
+										<select class="select select-bordered w-full max-w-xs" name="pallet_id" required>
+											for _, row := range data.Pallets {
+												<option value={ fmt.Sprintf("%d", row.PalletID) } selected?={ commentPalletSelected(data.CommentPalletID, row.PalletID) }>{ palletCode(row.PalletID) }</option>
+											}
+										</select>
+									</fieldset>
+									<textarea
+										class="textarea textarea-bordered w-full"
+										name="comment"
+										rows="3"
+									required
+									placeholder="Add client comment"></textarea>
+								<div>
+									<button class="btn btn-primary btn-sm" type="submit">Add Comment</button>
+								</div>
+							</form>
+						}
+					</div>
+				</section>
+
+				<section class="page-card">
+					<div class="page-card-body space-y-3">
+						<h2 class="section-title">All Photos For This SKU Instance</h2>
+						if len(data.Photos) == 0 {
+							<div role="alert" class="alert alert-info alert-soft">
+								<span>No photos for this SKU instance.</span>
+							</div>
+						} else {
+							<div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+								for _, p := range data.Photos {
+									<a class="card card-border bg-base-100 shadow-sm hover:bg-base-200/40 transition-colors" href={ photoHref(p.PalletID, p.ReceiptID, p.PhotoID, p.IsPrimary) } target="_blank" rel="noopener">
+										<div class="card-body p-4 gap-1">
+											<div class="font-semibold">{ palletCode(p.PalletID) }</div>
+											if p.IsPrimary {
+												<div class="text-sm text-base-content/70">Primary photo</div>
+											} else {
+												<div class="text-sm text-base-content/70">Photo #{ p.PhotoID }</div>
+											}
+											if p.LineComment != "" {
+												<div class="text-xs text-base-content/70 truncate" title={ p.LineComment }>{ p.LineComment }</div>
+											}
+										</div>
+									</a>
+								}
+							</div>
+						}
+					</div>
+				</section>
+
+				<section class="page-card">
+					<div class="page-card-body space-y-3">
+						<h2 class="section-title">Pallet Breakdown</h2>
+						if len(data.Pallets) == 0 {
+							<div role="alert" class="alert alert-info alert-soft">
+								<span>No pallet rows for this SKU instance.</span>
+							</div>
+						} else {
+							<div class="overflow-x-auto">
+								<table class="table table-zebra">
+									<thead>
+										<tr>
+											<th>Pallet</th>
+											<th>Total</th>
+											<th>Success</th>
+											<th>Unknown</th>
+											<th>Damaged</th>
+											<th>Comments</th>
+											<th></th>
+										</tr>
+									</thead>
+									<tbody>
+										for _, row := range data.Pallets {
+											<tr>
+												<td class="font-mono font-semibold">{ palletCode(row.PalletID) }</td>
+												<td>{ row.TotalQty }</td>
+												<td>{ row.SuccessQty }</td>
+												<td>{ row.UnknownQty }</td>
+												<td>{ row.DamagedQty }</td>
+												<td class="max-w-md break-words">{ row.CommentsRaw }</td>
+												<td>
+													<a class="btn btn-soft btn-info btn-sm" href={ fmt.Sprintf("/tasker/pallets/%d/content-label", row.PalletID) }>View Pallet</a>
+												</td>
+											</tr>
+										}
+									</tbody>
+								</table>
+							</div>
+						}
+					</div>
+				</section>
+			</main>
+			if data.IsClient {
+				@sharedhtml.DockClient(sharedhtml.NavSKU)
+			} else {
+				@sharedhtml.DockWithRole(sharedhtml.NavProjects, data.IsAdmin)
+			}
+			@templ.Raw(sharedhtml.CSRFFormScript())
+		</body>
+	</html>
+}

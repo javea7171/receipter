@@ -63,6 +63,22 @@ func (s *Server) RegisterFrontendRoutes(r chi.Router) chi.Router {
 func (s *Server) RegisterPalletRoutes(r chi.Router) {
 	s.Rbac.Add(rbac.RoleScanner, "PALLET_PROGRESS_VIEW", http.MethodGet, "/tasker/pallets/progress")
 	r.Get("/pallets/progress", palletprogress.ProgressPageQueryHandler(s.DB))
+	s.Rbac.Add(rbac.RoleAdmin, "SKU_VIEW", http.MethodGet, "/tasker/pallets/sku-view")
+	s.Rbac.Add(rbac.RoleScanner, "SKU_VIEW", http.MethodGet, "/tasker/pallets/sku-view")
+	s.Rbac.Add(rbac.RoleClient, "SKU_VIEW", http.MethodGet, "/tasker/pallets/sku-view")
+	r.Get("/pallets/sku-view", palletprogress.SKUViewPageQueryHandler(s.DB))
+	s.Rbac.Add(rbac.RoleAdmin, "SKU_DETAIL_VIEW", http.MethodGet, "/tasker/pallets/sku-view/detail")
+	s.Rbac.Add(rbac.RoleScanner, "SKU_DETAIL_VIEW", http.MethodGet, "/tasker/pallets/sku-view/detail")
+	s.Rbac.Add(rbac.RoleClient, "SKU_DETAIL_VIEW", http.MethodGet, "/tasker/pallets/sku-view/detail")
+	r.Get("/pallets/sku-view/detail", palletprogress.SKUDetailPageQueryHandler(s.DB))
+	s.Rbac.Add(rbac.RoleAdmin, "SKU_SUMMARY_EXPORT", http.MethodGet, "/tasker/pallets/sku-view/export-summary.csv")
+	s.Rbac.Add(rbac.RoleClient, "SKU_SUMMARY_EXPORT", http.MethodGet, "/tasker/pallets/sku-view/export-summary.csv")
+	r.Get("/pallets/sku-view/export-summary.csv", palletprogress.SKUSummaryCSVHandler(s.DB))
+	s.Rbac.Add(rbac.RoleAdmin, "SKU_DETAIL_EXPORT", http.MethodGet, "/tasker/pallets/sku-view/export-detail.csv")
+	s.Rbac.Add(rbac.RoleClient, "SKU_DETAIL_EXPORT", http.MethodGet, "/tasker/pallets/sku-view/export-detail.csv")
+	r.Get("/pallets/sku-view/export-detail.csv", palletprogress.SKUDetailedCSVHandler(s.DB))
+	s.Rbac.Add(rbac.RoleClient, "SKU_CLIENT_COMMENT_CREATE", http.MethodPost, "/tasker/pallets/sku-view/detail/comment")
+	r.Post("/pallets/sku-view/detail/comment", palletprogress.CreateSKUClientCommentHandler(s.DB))
 
 	s.Rbac.Add(rbac.RoleAdmin, "PALLET_CREATE", http.MethodPost, "/tasker/pallets/new")
 	r.Post("/pallets/new", palletlabels.NewPalletCommandHandler(s.DB, s.Audit))
@@ -77,7 +93,12 @@ func (s *Server) RegisterPalletRoutes(r chi.Router) {
 
 	s.Rbac.Add(rbac.RoleAdmin, "PALLET_CONTENT_LABEL_VIEW", http.MethodGet, "/tasker/pallets/*/content-label")
 	s.Rbac.Add(rbac.RoleScanner, "PALLET_CONTENT_LABEL_VIEW", http.MethodGet, "/tasker/pallets/*/content-label")
+	s.Rbac.Add(rbac.RoleClient, "PALLET_CONTENT_LABEL_VIEW", http.MethodGet, "/tasker/pallets/*/content-label")
 	r.Get("/pallets/{id}/content-label", palletlabels.PalletContentLabelPageQueryHandler(s.DB))
+	s.Rbac.Add(rbac.RoleAdmin, "PALLET_CONTENT_LINE_VIEW", http.MethodGet, "/tasker/pallets/*/content-line/*")
+	s.Rbac.Add(rbac.RoleScanner, "PALLET_CONTENT_LINE_VIEW", http.MethodGet, "/tasker/pallets/*/content-line/*")
+	s.Rbac.Add(rbac.RoleClient, "PALLET_CONTENT_LINE_VIEW", http.MethodGet, "/tasker/pallets/*/content-line/*")
+	r.Get("/pallets/{id}/content-line/{receiptID}", palletlabels.PalletContentLineDetailPageQueryHandler(s.DB))
 
 	s.Rbac.Add(rbac.RoleScanner, "PALLET_RECEIPT_VIEW", http.MethodGet, "/tasker/pallets/*/receipt")
 	r.Get("/pallets/{id}/receipt", palletreceipt.ReceiptPageQueryHandler(s.DB, s.SessionCache))
@@ -90,9 +111,11 @@ func (s *Server) RegisterPalletRoutes(r chi.Router) {
 	r.Post("/api/pallets/{id}/receipts/{receiptID}/delete", palletreceipt.DeleteReceiptLineCommandHandler(s.DB, s.Audit))
 
 	s.Rbac.Add(rbac.RoleScanner, "PALLET_RECEIPT_PHOTO_VIEW", http.MethodGet, "/tasker/api/pallets/*/receipts/*/photo")
+	s.Rbac.Add(rbac.RoleClient, "PALLET_RECEIPT_PHOTO_VIEW", http.MethodGet, "/tasker/api/pallets/*/receipts/*/photo")
 	r.Get("/api/pallets/{id}/receipts/{receiptID}/photo", palletreceipt.ReceiptPhotoQueryHandler(s.DB))
 
 	s.Rbac.Add(rbac.RoleScanner, "PALLET_RECEIPT_PHOTOS_VIEW", http.MethodGet, "/tasker/api/pallets/*/receipts/*/photos/*")
+	s.Rbac.Add(rbac.RoleClient, "PALLET_RECEIPT_PHOTOS_VIEW", http.MethodGet, "/tasker/api/pallets/*/receipts/*/photos/*")
 	r.Get("/api/pallets/{id}/receipts/{receiptID}/photos/{photoID}", palletreceipt.ReceiptPhotosHandler(s.DB))
 
 	s.Rbac.Add(rbac.RoleAdmin, "PALLET_CLOSE", http.MethodPost, "/tasker/api/pallets/*/close")

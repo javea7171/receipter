@@ -74,6 +74,7 @@ templ PalletProgressFragment(summary Summary) {
 						if summary.IsAdmin {
 							<a class="btn btn-sm bg-white text-black border border-base-300 hover:bg-base-100" href={ fmt.Sprintf("/tasker/projects/%d/logs", summary.ProjectID) }>View Logs</a>
 						}
+						<a class="btn btn-sm bg-white text-black border border-base-300 hover:bg-base-100" href="/tasker/pallets/sku-view">SKU View</a>
 						<form method="get" action="/tasker/pallets/progress" class="flex items-end gap-2">
 						<fieldset class="fieldset">
 							<legend class="fieldset-legend text-xs uppercase tracking-wide">Status</legend>

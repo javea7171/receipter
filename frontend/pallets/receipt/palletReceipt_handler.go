@@ -122,6 +122,7 @@ func CreateReceiptCommandHandler(db *sqlite.DB, auditSvc *audit.Service) http.Ha
 			return
 		}
 		damaged := r.FormValue("damaged") != "" || damagedQty > 0
+		unknownSKU := r.FormValue("unknown_sku") != ""
 		if damaged && damagedQty <= 0 {
 			http.Redirect(w, r, "/tasker/pallets/"+strconv.FormatInt(id, 10)+"/receipt?error="+url.QueryEscape("damaged qty is required when damaged is selected"), http.StatusSeeOther)
 			return
@@ -141,8 +142,11 @@ func CreateReceiptCommandHandler(db *sqlite.DB, auditSvc *audit.Service) http.Ha
 			PalletID:       id,
 			SKU:            strings.TrimSpace(r.FormValue("sku")),
 			Description:    strings.TrimSpace(r.FormValue("description")),
+			UOM:            strings.TrimSpace(r.FormValue("uom")),
+			Comment:        strings.TrimSpace(r.FormValue("comment")),
 			Qty:            qty,
 			CaseSize:       caseSize,
+			UnknownSKU:     unknownSKU,
 			Damaged:        damaged,
 			DamagedQty:     damagedQty,
 			BatchNumber:    strings.TrimSpace(r.FormValue("batch_number")),
@@ -169,7 +173,12 @@ func CreateReceiptCommandHandler(db *sqlite.DB, auditSvc *audit.Service) http.Ha
 		}
 		input.Photos = photos
 
-		if input.SKU == "" {
+		if input.UnknownSKU && len(input.StockPhotoBlob) == 0 && len(input.Photos) == 0 {
+			http.Redirect(w, r, "/tasker/pallets/"+strconv.FormatInt(id, 10)+"/receipt?error="+url.QueryEscape("unknown sku requires at least one photo"), http.StatusSeeOther)
+			return
+		}
+
+		if !input.UnknownSKU && input.SKU == "" {
 			http.Redirect(w, r, "/tasker/pallets/"+strconv.FormatInt(id, 10)+"/receipt?error="+url.QueryEscape("sku is required"), http.StatusSeeOther)
 			return
 		}
@@ -247,6 +256,8 @@ func UpdateReceiptLineCommandHandler(db *sqlite.DB, auditSvc *audit.Service) htt
 			ReceiptID:   receiptID,
 			SKU:         sku,
 			Description: strings.TrimSpace(r.FormValue("description")),
+			UOM:         strings.TrimSpace(r.FormValue("uom")),
+			Comment:     strings.TrimSpace(r.FormValue("comment")),
 			Qty:         qty,
 			CaseSize:    caseSize,
 			Damaged:     damaged,
@@ -401,14 +412,20 @@ func writeStockSuggestionListHTML(w io.Writer, q string, items []models.StockIte
 			continue
 		}
 		desc := strings.TrimSpace(item.Description)
+		uom := strings.TrimSpace(item.UOM)
 		label := sku
 		if desc != "" {
 			label = sku + " - " + desc
 		}
-		b.WriteString(`<li><button type="button" class="justify-start text-left text-base py-2" data-on:click="(function(){var sku=document.getElementById('sku_input');var desc=document.getElementById('description_input');var qty=document.getElementById('qty_input');var list=document.getElementById('sku_suggestions');if(sku){sku.value=el.dataset.sku||'';}if(desc){desc.value=el.dataset.description||'';}if(list){list.innerHTML='';list.classList.add('hidden');}if(qty&&!qty.disabled){qty.focus();}})()" data-sku-suggestion="1" data-sku="`)
+		if uom != "" {
+			label += " (" + uom + ")"
+		}
+		b.WriteString(`<li><button type="button" class="justify-start text-left text-base py-2" data-on:click="(function(){var sku=document.getElementById('sku_input');var desc=document.getElementById('description_input');var uom=document.getElementById('uom_input');var qty=document.getElementById('qty_input');var list=document.getElementById('sku_suggestions');if(sku){sku.value=el.dataset.sku||'';sku.dispatchEvent(new Event('input',{bubbles:true}));}if(desc){desc.value=el.dataset.description||'';}if(uom){uom.value=el.dataset.uom||'';}if(list){list.innerHTML='';list.classList.add('hidden');}if(qty&&!qty.disabled){qty.focus();}})()" data-sku-suggestion="1" data-sku="`)
 		b.WriteString(html.EscapeString(sku))
 		b.WriteString(`" data-description="`)
 		b.WriteString(html.EscapeString(desc))
+		b.WriteString(`" data-uom="`)
+		b.WriteString(html.EscapeString(uom))
 		b.WriteString(`">`)
 		b.WriteString(html.EscapeString(label))
 		b.WriteString(`</button></li>`)

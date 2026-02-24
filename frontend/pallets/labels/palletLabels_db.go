@@ -80,7 +80,37 @@ func LoadPalletByID(ctx context.Context, db *sqlite.DB, id int64) (models.Pallet
 	return pallet, err
 }
 
-func LoadPalletContent(ctx context.Context, db *sqlite.DB, id int64) (models.Pallet, []ContentLine, error) {
+func normalizeContentFilter(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "success":
+		return "success"
+	case "unknown":
+		return "unknown"
+	case "damaged":
+		return "damaged"
+	case "expired":
+		return "expired"
+	default:
+		return "all"
+	}
+}
+
+func contentFilterWhereClause(filter string) string {
+	switch normalizeContentFilter(filter) {
+	case "success":
+		return " AND pr.unknown_sku = 0 AND pr.damaged = 0 AND (pr.expiry_date IS NULL OR date(pr.expiry_date) >= date('now'))"
+	case "unknown":
+		return " AND pr.unknown_sku = 1"
+	case "damaged":
+		return " AND pr.damaged = 1"
+	case "expired":
+		return " AND pr.expiry_date IS NOT NULL AND date(pr.expiry_date) < date('now')"
+	default:
+		return ""
+	}
+}
+
+func LoadPalletContent(ctx context.Context, db *sqlite.DB, id int64, filter string) (models.Pallet, []ContentLine, error) {
 	var pallet models.Pallet
 	lines := make([]ContentLine, 0)
 	err := db.WithReadTx(ctx, func(ctx context.Context, tx bun.Tx) error {
@@ -89,17 +119,95 @@ func LoadPalletContent(ctx context.Context, db *sqlite.DB, id int64) (models.Pal
 		if err != nil {
 			return err
 		}
+		whereExtra := contentFilterWhereClause(filter)
 		return tx.NewRaw(`
-SELECT pr.sku, pr.description, pr.qty, pr.case_size, pr.damaged,
+SELECT pr.id, pr.sku, pr.description, COALESCE(pr.uom, '') AS uom, COALESCE(pr.comment, '') AS comment,
+       CASE
+         WHEN (pr.stock_photo_blob IS NOT NULL AND length(pr.stock_photo_blob) > 0) THEN 1
+         WHEN EXISTS (SELECT 1 FROM receipt_photos rp WHERE rp.pallet_receipt_id = pr.id) THEN 1
+         ELSE 0
+       END AS has_photos,
+       pr.qty, pr.case_size, pr.unknown_sku, pr.damaged,
        COALESCE(pr.batch_number, '') AS batch_number,
        COALESCE(strftime('%d/%m/%Y', pr.expiry_date), '') AS expiry_date,
+       CASE WHEN pr.expiry_date IS NOT NULL AND date(pr.expiry_date) < date('now') THEN 1 ELSE 0 END AS expired,
        COALESCE(u.username, '') AS scanned_by
 FROM pallet_receipts pr
 LEFT JOIN users u ON u.id = pr.scanned_by_user_id
-WHERE pr.pallet_id = ?
+WHERE pr.pallet_id = ?`+whereExtra+`
 ORDER BY pr.sku ASC, pr.id ASC`, id).Scan(ctx, &lines)
 	})
 	return pallet, lines, err
+}
+
+func LoadPalletContentLineDetail(ctx context.Context, db *sqlite.DB, palletID, receiptID int64) (models.Pallet, ContentLineDetail, error) {
+	var pallet models.Pallet
+	detail := ContentLineDetail{
+		ID:       receiptID,
+		PalletID: palletID,
+		PhotoIDs: make([]int64, 0),
+	}
+	err := db.WithReadTx(ctx, func(ctx context.Context, tx bun.Tx) error {
+		var err error
+		pallet, err = loadPalletByID(ctx, tx, palletID)
+		if err != nil {
+			return err
+		}
+
+		row := struct {
+			ID              int64  `bun:"id"`
+			SKU             string `bun:"sku"`
+			Description     string `bun:"description"`
+			UOM             string `bun:"uom"`
+			Comment         string `bun:"comment"`
+			Qty             int64  `bun:"qty"`
+			CaseSize        int64  `bun:"case_size"`
+			UnknownSKU      bool   `bun:"unknown_sku"`
+			Damaged         bool   `bun:"damaged"`
+			BatchNumber     string `bun:"batch_number"`
+			ExpiryDateUK    string `bun:"expiry_date"`
+			Expired         bool   `bun:"expired"`
+			ScannedBy       string `bun:"scanned_by"`
+			HasPrimaryPhoto bool   `bun:"has_primary_photo"`
+		}{}
+		if err := tx.NewRaw(`
+SELECT pr.id, pr.sku, pr.description, COALESCE(pr.uom, '') AS uom, COALESCE(pr.comment, '') AS comment, pr.qty, pr.case_size, pr.unknown_sku, pr.damaged,
+       COALESCE(pr.batch_number, '') AS batch_number,
+       COALESCE(strftime('%d/%m/%Y', pr.expiry_date), '') AS expiry_date,
+       CASE WHEN pr.expiry_date IS NOT NULL AND date(pr.expiry_date) < date('now') THEN 1 ELSE 0 END AS expired,
+       COALESCE(u.username, '') AS scanned_by,
+       CASE WHEN pr.stock_photo_blob IS NOT NULL AND length(pr.stock_photo_blob) > 0 THEN 1 ELSE 0 END AS has_primary_photo
+FROM pallet_receipts pr
+LEFT JOIN users u ON u.id = pr.scanned_by_user_id
+WHERE pr.id = ? AND pr.pallet_id = ? AND pr.project_id = ?
+LIMIT 1`, receiptID, palletID, pallet.ProjectID).Scan(ctx, &row); err != nil {
+			return err
+		}
+
+		detail.ID = row.ID
+		detail.PalletID = palletID
+		detail.SKU = row.SKU
+		detail.Description = row.Description
+		detail.UOM = row.UOM
+		detail.Comment = row.Comment
+		detail.Qty = row.Qty
+		detail.CaseSize = row.CaseSize
+		detail.UnknownSKU = row.UnknownSKU
+		detail.Damaged = row.Damaged
+		detail.BatchNumber = row.BatchNumber
+		detail.ExpiryDateUK = row.ExpiryDateUK
+		detail.Expired = row.Expired
+		detail.ScannedBy = row.ScannedBy
+		detail.HasPrimaryPhoto = row.HasPrimaryPhoto
+
+		photoIDs := make([]int64, 0)
+		if err := tx.NewRaw(`SELECT id FROM receipt_photos WHERE pallet_receipt_id = ? ORDER BY id ASC`, receiptID).Scan(ctx, &photoIDs); err != nil {
+			return err
+		}
+		detail.PhotoIDs = photoIDs
+		return nil
+	})
+	return pallet, detail, err
 }
 
 func LoadPalletEventLog(ctx context.Context, db *sqlite.DB, palletID int64) ([]PalletEvent, error) {
@@ -173,8 +281,11 @@ type auditReceiptSnapshot struct {
 	PalletID    int64  `json:"PalletID"`
 	SKU         string `json:"SKU"`
 	Description string `json:"Description"`
+	UOM         string `json:"UOM"`
+	Comment     string `json:"Comment"`
 	Qty         int64  `json:"Qty"`
 	CaseSize    int64  `json:"CaseSize"`
+	UnknownSKU  bool   `json:"UnknownSKU"`
 	Damaged     bool   `json:"Damaged"`
 	Batch       string `json:"BatchNumber"`
 	ExpiryDate  string `json:"ExpiryDate"`
@@ -227,6 +338,7 @@ func palletEventDetails(action, entityType, entityID, beforeJSON, afterJSON stri
 		fmt.Sprintf("Line %s", entityID),
 		fmt.Sprintf("qty %d", snapshot.Qty),
 		fmt.Sprintf("case %d", snapshot.CaseSize),
+		fmt.Sprintf("unknown sku %s", yesNo(snapshot.UnknownSKU)),
 		fmt.Sprintf("damaged %s", yesNo(snapshot.Damaged)),
 	}
 	if sku := strings.TrimSpace(snapshot.SKU); sku != "" {
@@ -234,6 +346,12 @@ func palletEventDetails(action, entityType, entityID, beforeJSON, afterJSON stri
 	}
 	if strings.TrimSpace(snapshot.Description) != "" {
 		details = append(details, "desc "+snapshot.Description)
+	}
+	if strings.TrimSpace(snapshot.UOM) != "" {
+		details = append(details, "uom "+snapshot.UOM)
+	}
+	if strings.TrimSpace(snapshot.Comment) != "" {
+		details = append(details, "comment set")
 	}
 	if strings.TrimSpace(snapshot.Batch) != "" {
 		details = append(details, "batch "+snapshot.Batch)

@@ -93,6 +93,10 @@ func NewServer(addr string, db *sqlite.DB, sessionCache *cache.UserSessionCache,
 			return
 		}
 
+		if session.User.Role == rbac.RoleClient {
+			http.Redirect(w, r, "/tasker/pallets/sku-view", http.StatusSeeOther)
+			return
+		}
 		http.Redirect(w, r, "/tasker/projects", http.StatusSeeOther)
 	})
 
@@ -210,6 +214,30 @@ func (s *Server) ensureSessionActiveProject(ctx context.Context, session *models
 	if session == nil || session.ID == "" {
 		return
 	}
+	if session.User.Role == rbac.RoleClient {
+		projectID := session.User.ClientProjectID
+		if projectID != nil && *projectID > 0 {
+			if _, err := projectinfra.LoadByID(ctx, s.DB, *projectID); err != nil {
+				slog.Error("resolve client session project failed", slog.String("session_id", session.ID), slog.Any("err", err))
+				projectID = nil
+			}
+		} else {
+			projectID = nil
+		}
+		if sameProjectID(session.ActiveProjectID, projectID) {
+			return
+		}
+		if err := projectinfra.SetSessionActiveProjectID(ctx, s.DB, session.ID, projectID); err != nil {
+			slog.Error("set client session active project failed", slog.String("session_id", session.ID), slog.Any("err", err))
+			return
+		}
+		session.ActiveProjectID = projectID
+		if s.SessionCache != nil {
+			s.SessionCache.AddSession(*session)
+		}
+		return
+	}
+
 	projectID, err := projectinfra.ResolveSessionActiveProjectID(ctx, s.DB, session.ActiveProjectID)
 	if err != nil {
 		slog.Error("resolve session active project failed", slog.String("session_id", session.ID), slog.Any("err", err))

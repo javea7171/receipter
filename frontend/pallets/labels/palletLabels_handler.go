@@ -140,7 +140,8 @@ func PalletContentLabelPageQueryHandler(db *sqlite.DB) http.HandlerFunc {
 			return
 		}
 
-		pallet, lines, err := LoadPalletContent(r.Context(), db, id)
+		filter := normalizeContentFilter(r.URL.Query().Get("filter"))
+		pallet, lines, err := LoadPalletContent(r.Context(), db, id, filter)
 		if err != nil {
 			if err == sql.ErrNoRows {
 				http.Error(w, "pallet not found", http.StatusNotFound)
@@ -161,15 +162,50 @@ func PalletContentLabelPageQueryHandler(db *sqlite.DB) http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		if r.URL.Query().Get("fragment") == "1" {
-			if err := PalletContentLabelFragment(pallet.ID, pallet.ProjectID, pallet.Status, canExport, lines, events).Render(r.Context(), w); err != nil {
+			if err := PalletContentLabelFragment(pallet.ID, pallet.ProjectID, pallet.Status, canExport, filter, lines, events).Render(r.Context(), w); err != nil {
 				http.Error(w, "failed to render pallet content label fragment", http.StatusInternalServerError)
 				return
 			}
 			return
 		}
 
-		if err := PalletContentLabelPage(pallet.ID, pallet.ProjectID, pallet.Status, canExport, lines, events).Render(r.Context(), w); err != nil {
+		if err := PalletContentLabelPage(pallet.ID, pallet.ProjectID, pallet.Status, canExport, filter, lines, events).Render(r.Context(), w); err != nil {
 			http.Error(w, "failed to render pallet content label", http.StatusInternalServerError)
+			return
+		}
+	}
+}
+
+// PalletContentLineDetailPageQueryHandler renders details for one pallet receipt line.
+func PalletContentLineDetailPageQueryHandler(db *sqlite.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		idStr := chi.URLParam(r, "id")
+		id, err := strconv.ParseInt(idStr, 10, 64)
+		if err != nil || id <= 0 {
+			http.Error(w, "invalid pallet id", http.StatusBadRequest)
+			return
+		}
+		receiptIDStr := chi.URLParam(r, "receiptID")
+		receiptID, err := strconv.ParseInt(receiptIDStr, 10, 64)
+		if err != nil || receiptID <= 0 {
+			http.Error(w, "invalid receipt id", http.StatusBadRequest)
+			return
+		}
+
+		pallet, line, err := LoadPalletContentLineDetail(r.Context(), db, id, receiptID)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				http.Error(w, "line not found", http.StatusNotFound)
+				return
+			}
+			http.Error(w, "failed to load line detail", http.StatusInternalServerError)
+			return
+		}
+
+		filter := normalizeContentFilter(r.URL.Query().Get("filter"))
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if err := PalletContentLineDetailPage(pallet.ID, pallet.Status, filter, line).Render(r.Context(), w); err != nil {
+			http.Error(w, "failed to render line detail", http.StatusInternalServerError)
 			return
 		}
 	}
