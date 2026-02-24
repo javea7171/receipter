@@ -14,13 +14,7 @@ import (
 )
 
 func main() {
-	migrationsDir, err := resolveMigrationsDir()
-	if err != nil {
-		log.Fatalf("resolve migrations dir: %v", err)
-	}
-
-	defaultDBPath := filepath.Join(filepath.Dir(filepath.Dir(filepath.Dir(migrationsDir))), "receipter.db")
-	dbPath := getenv("SQLITE_PATH", defaultDBPath)
+	dbPath := getenv("SQLITE_PATH", "receipter.db")
 
 	db, err := sqlite.OpenDB(dbPath)
 	if err != nil {
@@ -28,7 +22,7 @@ func main() {
 	}
 	defer db.Close()
 
-	if err := sqlite.ApplyMigrations(context.Background(), db, migrationsDir); err != nil {
+	if err := sqlite.ApplyEmbeddedMigrations(context.Background(), db); err != nil {
 		log.Fatalf("apply migrations: %v", err)
 	}
 

@@ -15,7 +15,7 @@ import (
 )
 
 func main() {
-	addr := getenv("APP_ADDR", ":8080")
+	addr := getenv("APP_ADDR", ":8881")
 	dbPath := getenv("SQLITE_PATH", "receipter.db")
 
 	db, err := sqlite.OpenDB(dbPath)
@@ -24,7 +24,7 @@ func main() {
 	}
 	defer db.Close()
 
-	if err := sqlite.ApplyMigrations(context.Background(), db, "infrastructure/sqlite/migrations"); err != nil {
+	if err := sqlite.ApplyEmbeddedMigrations(context.Background(), db); err != nil {
 		log.Fatalf("apply migrations: %v", err)
 	}
 
