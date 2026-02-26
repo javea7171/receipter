@@ -36,6 +36,7 @@ func ProgressPageQueryHandler(db *sqlite.DB) http.HandlerFunc {
 		summary.CanCreatePallet = isAdmin && summary.ProjectStatus == "active"
 		summary.CanOpenReceipt = isAdmin
 		summary.CanManageLifecycle = isAdmin && summary.ProjectStatus == "active"
+		summary.CanPrintClosedLabel = isAdmin || hasRole(session.UserRoles, rbac.RoleScanner)
 
 		if r.URL.Query().Get("fragment") == "1" {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")

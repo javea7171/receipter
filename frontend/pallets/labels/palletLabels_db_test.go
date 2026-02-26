@@ -2,6 +2,7 @@ package labels
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -332,5 +333,227 @@ func TestCreateNextPallets_BulkAllocatesSequentialIDs(t *testing.T) {
 		if pallet.ProjectID != 1 {
 			t.Fatalf("expected project_id=1, got %d", pallet.ProjectID)
 		}
+	}
+}
+
+func TestLoadClosedPalletLabelData_UsesClosedKnownGoods(t *testing.T) {
+	db := openLabelsTestDB(t)
+
+	err := db.WithWriteTx(context.Background(), func(ctx context.Context, tx bun.Tx) error {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO users (id, username, password_hash, role, created_at, updated_at) VALUES (1, 'scanner1', 'hash', 'scanner', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO pallets (id, project_id, status, created_at, closed_at) VALUES (7, 1, 'closed', CURRENT_TIMESTAMP, '2026-01-30 13:45:00')`); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `
+INSERT INTO pallet_receipts (
+	project_id, pallet_id, sku, description, scanned_by_user_id, qty, case_size, unknown_sku, damaged, damaged_qty, batch_number, expiry_date, carton_barcode, item_barcode, created_at, updated_at
+) VALUES
+	(1, 7, 'SKU-1', 'Tea Tree All One Magic Soap 475ml', 1, 347, 12, 0, 0, 0, '12867EU12', '2028-09-11', '', '018787244258', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+	(1, 7, 'SKU-1', 'Tea Tree All One Magic Soap 475ml', 1, 5, 12, 0, 1, 5, '12867EU12', '2028-09-11', '', '', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+	(1, 7, 'UNKNOWN', 'Unknown item', 1, 2, 1, 1, 0, 0, '', NULL, '', '', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+`); err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("seed closed label data: %v", err)
+	}
+
+	data, err := LoadClosedPalletLabelData(context.Background(), db, 7)
+	if err != nil {
+		t.Fatalf("LoadClosedPalletLabelData returned error: %v", err)
+	}
+	if data.PalletID != 7 {
+		t.Fatalf("expected pallet id 7, got %d", data.PalletID)
+	}
+	if data.ClientName != "Test Client" {
+		t.Fatalf("expected client name Test Client, got %q", data.ClientName)
+	}
+	if data.Description != "Tea Tree All One Magic Soap 475ml" {
+		t.Fatalf("unexpected description %q", data.Description)
+	}
+	if data.SKU != "SKU-1" {
+		t.Fatalf("expected sku SKU-1, got %q", data.SKU)
+	}
+	if data.ExpiryDate != "11/09/2028" {
+		t.Fatalf("expected expiry 11/09/2028, got %q", data.ExpiryDate)
+	}
+	if data.LabelDate != "30/01/2026" {
+		t.Fatalf("expected label date 30/01/2026, got %q", data.LabelDate)
+	}
+	if data.BatchNumber != "12867EU12" {
+		t.Fatalf("expected batch 12867EU12, got %q", data.BatchNumber)
+	}
+	if data.BarcodeValue != "018787244258" {
+		t.Fatalf("expected barcode 018787244258, got %q", data.BarcodeValue)
+	}
+	if data.TotalQty != 347 {
+		t.Fatalf("expected total qty 347, got %d", data.TotalQty)
+	}
+	if data.QtyPerCarton != 12 {
+		t.Fatalf("expected qty/carton 12, got %d", data.QtyPerCarton)
+	}
+	if data.BoxCount != 29 {
+		t.Fatalf("expected box count 29 (ceil(347/12)), got %d", data.BoxCount)
+	}
+}
+
+func TestLoadClosedPalletLabelsData_GroupsPerItemBatchExpiry(t *testing.T) {
+	db := openLabelsTestDB(t)
+
+	err := db.WithWriteTx(context.Background(), func(ctx context.Context, tx bun.Tx) error {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO users (id, username, password_hash, role, created_at, updated_at) VALUES (1, 'scanner1', 'hash', 'scanner', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO pallets (id, project_id, status, created_at, closed_at) VALUES (10, 1, 'closed', CURRENT_TIMESTAMP, '2026-01-30 13:45:00')`); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `
+INSERT INTO pallet_receipts (
+	project_id, pallet_id, sku, description, scanned_by_user_id, qty, case_size, unknown_sku, damaged, damaged_qty, batch_number, expiry_date, carton_barcode, item_barcode, created_at, updated_at
+) VALUES
+	(1, 10, 'SKU-A', 'Tea Tree All One Magic Soap 475ml', 1, 10, 5, 0, 0, 0, 'A-BATCH-1', '2028-09-11', '', 'A-FIRST', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+	(1, 10, 'SKU-A', 'Tea Tree All One Magic Soap 475ml', 1, 6, 5, 0, 0, 0, 'A-BATCH-1', '2028-09-11', 'A-SECOND', '', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+	(1, 10, 'SKU-A', 'Tea Tree All One Magic Soap 475ml', 1, 4, 5, 0, 0, 0, 'A-BATCH-2', '2028-10-01', 'A-THIRD', '', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+	(1, 10, 'SKU-B', 'Second Product', 1, 7, 7, 0, 0, 0, 'B-BATCH-1', '2029-01-15', '', 'B-FIRST', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+	(1, 10, 'SKU-D', 'Carton Only Product', 1, 9, 3, 0, 0, 0, 'D-BATCH-1', '2031-03-03', 'D-CARTON-ONLY', '', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+	(1, 10, 'SKU-C', 'Third Product', 1, 3, 6, 0, 0, 0, 'C-BATCH-1', '2030-02-02', '', '', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+	(1, 10, 'SKU-C', 'Third Product', 1, 2, 6, 0, 0, 0, 'C-BATCH-1', '2030-02-02', '', 'C-ITEM-FIRST', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+	(1, 10, 'SKU-A', 'Tea Tree All One Magic Soap 475ml', 1, 2, 5, 0, 1, 2, 'A-BATCH-1', '2028-09-11', 'A-DAMAGED', '', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+`); err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("seed grouped closed label data: %v", err)
+	}
+
+	labels, err := LoadClosedPalletLabelsData(context.Background(), db, 10)
+	if err != nil {
+		t.Fatalf("LoadClosedPalletLabelsData returned error: %v", err)
+	}
+	if len(labels) != 5 {
+		t.Fatalf("expected 5 grouped labels, got %d", len(labels))
+	}
+
+	grouped := make(map[string]ClosedPalletLabelData, len(labels))
+	for _, label := range labels {
+		key := label.Description + "|" + label.BatchNumber + "|" + label.ExpiryDate
+		grouped[key] = label
+	}
+
+	first := grouped["Tea Tree All One Magic Soap 475ml|A-BATCH-1|11/09/2028"]
+	if first.SKU != "SKU-A" {
+		t.Fatalf("expected A-BATCH-1 sku SKU-A, got %q", first.SKU)
+	}
+	if first.TotalQty != 16 {
+		t.Fatalf("expected A-BATCH-1 qty 16, got %d", first.TotalQty)
+	}
+	if first.BarcodeValue != "A-FIRST" {
+		t.Fatalf("expected A-BATCH-1 first barcode A-FIRST, got %q", first.BarcodeValue)
+	}
+	if first.BoxCount != 4 {
+		t.Fatalf("expected A-BATCH-1 box count 4, got %d", first.BoxCount)
+	}
+
+	second := grouped["Tea Tree All One Magic Soap 475ml|A-BATCH-2|01/10/2028"]
+	if second.SKU != "SKU-A" {
+		t.Fatalf("expected A-BATCH-2 sku SKU-A, got %q", second.SKU)
+	}
+	if second.TotalQty != 4 {
+		t.Fatalf("expected A-BATCH-2 qty 4, got %d", second.TotalQty)
+	}
+	if second.BarcodeValue != "A-FIRST" {
+		t.Fatalf("expected A-BATCH-2 to reuse first product barcode A-FIRST, got %q", second.BarcodeValue)
+	}
+	if second.BoxCount != 1 {
+		t.Fatalf("expected A-BATCH-2 box count 1, got %d", second.BoxCount)
+	}
+
+	third := grouped["Second Product|B-BATCH-1|15/01/2029"]
+	if third.SKU != "SKU-B" {
+		t.Fatalf("expected B-BATCH-1 sku SKU-B, got %q", third.SKU)
+	}
+	if third.TotalQty != 7 {
+		t.Fatalf("expected B-BATCH-1 qty 7, got %d", third.TotalQty)
+	}
+	if third.BarcodeValue != "B-FIRST" {
+		t.Fatalf("expected B-BATCH-1 barcode B-FIRST, got %q", third.BarcodeValue)
+	}
+	if third.BoxCount != 1 {
+		t.Fatalf("expected B-BATCH-1 box count 1, got %d", third.BoxCount)
+	}
+
+	fourth := grouped["Third Product|C-BATCH-1|02/02/2030"]
+	if fourth.SKU != "SKU-C" {
+		t.Fatalf("expected C-BATCH-1 sku SKU-C, got %q", fourth.SKU)
+	}
+	if fourth.TotalQty != 5 {
+		t.Fatalf("expected C-BATCH-1 qty 5, got %d", fourth.TotalQty)
+	}
+	if fourth.BarcodeValue != "C-ITEM-FIRST" {
+		t.Fatalf("expected C-BATCH-1 to use first item barcode C-ITEM-FIRST, got %q", fourth.BarcodeValue)
+	}
+	if fourth.BoxCount != 1 {
+		t.Fatalf("expected C-BATCH-1 box count 1, got %d", fourth.BoxCount)
+	}
+
+	fifth := grouped["Carton Only Product|D-BATCH-1|03/03/2031"]
+	if fifth.SKU != "SKU-D" {
+		t.Fatalf("expected D-BATCH-1 sku SKU-D, got %q", fifth.SKU)
+	}
+	if fifth.TotalQty != 9 {
+		t.Fatalf("expected D-BATCH-1 qty 9, got %d", fifth.TotalQty)
+	}
+	if fifth.BarcodeValue != "D-CARTON-ONLY" {
+		t.Fatalf("expected D-BATCH-1 to use carton barcode D-CARTON-ONLY when item barcode is missing, got %q", fifth.BarcodeValue)
+	}
+}
+
+func TestLoadClosedPalletLabelData_ReturnsErrWhenNotClosed(t *testing.T) {
+	db := openLabelsTestDB(t)
+
+	err := db.WithWriteTx(context.Background(), func(ctx context.Context, tx bun.Tx) error {
+		_, err := tx.ExecContext(ctx, `INSERT INTO pallets (id, project_id, status, created_at) VALUES (8, 1, 'open', CURRENT_TIMESTAMP)`)
+		return err
+	})
+	if err != nil {
+		t.Fatalf("seed open pallet: %v", err)
+	}
+
+	_, err = LoadClosedPalletLabelData(context.Background(), db, 8)
+	if !errors.Is(err, ErrPalletNotClosed) {
+		t.Fatalf("expected ErrPalletNotClosed, got %v", err)
+	}
+}
+
+func TestMarkPalletLabelled_TransitionsClosed(t *testing.T) {
+	db := openLabelsTestDB(t)
+
+	err := db.WithWriteTx(context.Background(), func(ctx context.Context, tx bun.Tx) error {
+		_, err := tx.ExecContext(ctx, `INSERT INTO pallets (id, project_id, status, created_at, closed_at) VALUES (9, 1, 'closed', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`)
+		return err
+	})
+	if err != nil {
+		t.Fatalf("seed closed pallet: %v", err)
+	}
+
+	if err := MarkPalletLabelled(context.Background(), db, nil, 0, 9); err != nil {
+		t.Fatalf("MarkPalletLabelled returned error: %v", err)
+	}
+
+	var status string
+	err = db.WithReadTx(context.Background(), func(ctx context.Context, tx bun.Tx) error {
+		return tx.NewRaw(`SELECT status FROM pallets WHERE id = 9`).Scan(ctx, &status)
+	})
+	if err != nil {
+		t.Fatalf("read pallet status: %v", err)
+	}
+	if status != "labelled" {
+		t.Fatalf("expected labelled status, got %s", status)
 	}
 }

@@ -2,6 +2,7 @@ package labels
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -130,6 +131,56 @@ func PalletLabelPageQueryHandler(db *sqlite.DB) http.HandlerFunc {
 	}
 }
 
+// ClosedPalletLabelPDFQueryHandler renders a closed/labelled pallet shipping label PDF.
+func ClosedPalletLabelPDFQueryHandler(db *sqlite.DB, auditSvc *audit.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		idStr := chi.URLParam(r, "id")
+		id, err := strconv.ParseInt(idStr, 10, 64)
+		if err != nil || id <= 0 {
+			http.Error(w, "invalid pallet id", http.StatusBadRequest)
+			return
+		}
+
+		labelData, err := LoadClosedPalletLabelsData(r.Context(), db, id)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				http.Error(w, "pallet not found", http.StatusNotFound)
+				return
+			}
+			if errors.Is(err, ErrPalletNotClosed) {
+				http.Error(w, "pallet must be closed or labelled to print this label", http.StatusConflict)
+				return
+			}
+			http.Error(w, "failed to load pallet label", http.StatusInternalServerError)
+			return
+		}
+
+		pdfBytes, err := renderClosedPalletLabelsPDF(labelData)
+		if err != nil {
+			http.Error(w, "failed to build closed pallet label pdf", http.StatusInternalServerError)
+			return
+		}
+
+		session, _ := sessioncontext.GetSessionFromContext(r.Context())
+		if err := MarkPalletLabelled(r.Context(), db, auditSvc, session.UserID, id); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				http.Error(w, "pallet not found", http.StatusNotFound)
+				return
+			}
+			if errors.Is(err, ErrPalletNotClosed) {
+				http.Error(w, "pallet must be closed or labelled to print this label", http.StatusConflict)
+				return
+			}
+			http.Error(w, "failed to set pallet status", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/pdf")
+		w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=pallet-%d-closed-label.pdf", id))
+		_, _ = w.Write(pdfBytes)
+	}
+}
+
 // PalletContentLabelPageQueryHandler renders a printable label view of pallet contents.
 func PalletContentLabelPageQueryHandler(db *sqlite.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -156,20 +207,22 @@ func PalletContentLabelPageQueryHandler(db *sqlite.DB) http.HandlerFunc {
 			return
 		}
 		canExport := false
+		canPrintClosedLabel := false
 		if session, ok := sessioncontext.GetSessionFromContext(r.Context()); ok {
 			canExport = hasRole(session.UserRoles, rbac.RoleAdmin)
+			canPrintClosedLabel = isClosedLikePalletStatus(pallet.Status) && canPrintClosedLabelForRoles(session.UserRoles)
 		}
 
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		if r.URL.Query().Get("fragment") == "1" {
-			if err := PalletContentLabelFragment(pallet.ID, pallet.ProjectID, pallet.Status, canExport, filter, lines, events).Render(r.Context(), w); err != nil {
+			if err := PalletContentLabelFragment(pallet.ID, pallet.ProjectID, pallet.Status, canExport, canPrintClosedLabel, filter, lines, events).Render(r.Context(), w); err != nil {
 				http.Error(w, "failed to render pallet content label fragment", http.StatusInternalServerError)
 				return
 			}
 			return
 		}
 
-		if err := PalletContentLabelPage(pallet.ID, pallet.ProjectID, pallet.Status, canExport, filter, lines, events).Render(r.Context(), w); err != nil {
+		if err := PalletContentLabelPage(pallet.ID, pallet.ProjectID, pallet.Status, canExport, canPrintClosedLabel, filter, lines, events).Render(r.Context(), w); err != nil {
 			http.Error(w, "failed to render pallet content label", http.StatusInternalServerError)
 			return
 		}
@@ -203,8 +256,12 @@ func PalletContentLineDetailPageQueryHandler(db *sqlite.DB) http.HandlerFunc {
 		}
 
 		filter := normalizeContentFilter(r.URL.Query().Get("filter"))
+		canPrintClosedLabel := false
+		if session, ok := sessioncontext.GetSessionFromContext(r.Context()); ok {
+			canPrintClosedLabel = isClosedLikePalletStatus(pallet.Status) && canPrintClosedLabelForRoles(session.UserRoles)
+		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		if err := PalletContentLineDetailPage(pallet.ID, pallet.Status, filter, line).Render(r.Context(), w); err != nil {
+		if err := PalletContentLineDetailPage(pallet.ID, pallet.Status, canPrintClosedLabel, filter, line).Render(r.Context(), w); err != nil {
 			http.Error(w, "failed to render line detail", http.StatusInternalServerError)
 			return
 		}
@@ -234,6 +291,14 @@ func hasRole(userRoles []string, role string) bool {
 		}
 	}
 	return false
+}
+
+func canPrintClosedLabelForRoles(userRoles []string) bool {
+	return hasRole(userRoles, rbac.RoleAdmin) || hasRole(userRoles, rbac.RoleScanner)
+}
+
+func isClosedLikePalletStatus(status string) bool {
+	return status == "closed" || status == "labelled"
 }
 
 func requireActiveProjectForPalletWrites(w http.ResponseWriter, r *http.Request, db *sqlite.DB) (project models.Project, ok bool) {

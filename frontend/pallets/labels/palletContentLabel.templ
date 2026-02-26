@@ -14,6 +14,9 @@ func contentStatusBadge(status string) string {
 	if status == "created" {
 		return "badge badge-warning"
 	}
+	if status == "labelled" {
+		return "badge badge-info"
+	}
 	if status == "cancelled" {
 		return "badge badge-error"
 	}
@@ -75,7 +78,7 @@ func contentLabelURL(palletID int64, filter string) string {
 	return fmt.Sprintf("/tasker/pallets/%d/content-label?%s", palletID, encoded)
 }
 
-templ PalletContentLabelPage(palletID int64, projectID int64, status string, canExport bool, filter string, lines []ContentLine, events []PalletEvent) {
+templ PalletContentLabelPage(palletID int64, projectID int64, status string, canExport bool, canPrintClosedLabel bool, filter string, lines []ContentLine, events []PalletEvent) {
 	<!doctype html>
 	<html data-theme="light">
 		<head>
@@ -86,12 +89,12 @@ templ PalletContentLabelPage(palletID int64, projectID int64, status string, can
 			<script type="module" src={ contentDatastarBundleURL }></script>
 		</head>
 		<body>
-			@PalletContentLabelFragment(palletID, projectID, status, canExport, filter, lines, events)
+			@PalletContentLabelFragment(palletID, projectID, status, canExport, canPrintClosedLabel, filter, lines, events)
 		</body>
 	</html>
 }
 
-templ PalletContentLabelFragment(palletID int64, projectID int64, status string, canExport bool, filter string, lines []ContentLine, events []PalletEvent) {
+templ PalletContentLabelFragment(palletID int64, projectID int64, status string, canExport bool, canPrintClosedLabel bool, filter string, lines []ContentLine, events []PalletEvent) {
 	<div
 		id="pallet-content-page"
 		data-signals:lastScrollY="0"
@@ -120,6 +123,9 @@ templ PalletContentLabelFragment(palletID int64, projectID int64, status string,
 					</form>
 					if canExport {
 						<a class="btn btn-soft btn-secondary btn-sm" href={ fmt.Sprintf("/tasker/exports/pallet/%d.csv?project_id=%d", palletID, projectID) }>Export CSV</a>
+					}
+					if canPrintClosedLabel {
+						<a class="btn btn-soft btn-secondary btn-sm" href={ fmt.Sprintf("/tasker/pallets/%d/closed-label", palletID) } target="_blank" rel="noopener">Print Pallet Label</a>
 					}
 					<a class="btn btn-soft btn-primary btn-sm" href={ fmt.Sprintf("/tasker/pallets/%d/receipt", palletID) }>Receipt</a>
 					<a class="btn btn-ghost btn-sm" href="/tasker/pallets/progress">Back</a>
@@ -332,7 +338,7 @@ templ PalletContentLabelFragment(palletID int64, projectID int64, status string,
 	</div>
 }
 
-templ PalletContentLineDetailPage(palletID int64, status string, filter string, line ContentLineDetail) {
+templ PalletContentLineDetailPage(palletID int64, status string, canPrintClosedLabel bool, filter string, line ContentLineDetail) {
 	<!doctype html>
 	<html data-theme="light">
 		<head>
@@ -350,7 +356,12 @@ templ PalletContentLineDetailPage(palletID int64, status string, filter string, 
 							Pallet { palletID } | <span class={ contentStatusBadge(status) }>{ status }</span>
 						</p>
 					</div>
-					<a class="btn btn-ghost btn-sm" href={ contentLabelURL(palletID, filter) }>Back</a>
+					<div class="flex items-center gap-2">
+						if canPrintClosedLabel {
+							<a class="btn btn-soft btn-secondary btn-sm" href={ fmt.Sprintf("/tasker/pallets/%d/closed-label", palletID) } target="_blank" rel="noopener">Print Pallet Label</a>
+						}
+						<a class="btn btn-ghost btn-sm" href={ contentLabelURL(palletID, filter) }>Back</a>
+					</div>
 				</div>
 
 				<section class="page-card">

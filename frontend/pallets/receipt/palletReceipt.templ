@@ -60,6 +60,8 @@ templ PalletReceiptPage(data PageData) {
 								<span class="badge badge-success">{ data.PalletStatus }</span>
 							} else if data.PalletStatus == "created" {
 								<span class="badge badge-warning">{ data.PalletStatus }</span>
+							} else if data.PalletStatus == "labelled" {
+								<span class="badge badge-info">{ data.PalletStatus }</span>
 							} else {
 								<span class="badge badge-neutral">{ data.PalletStatus }</span>
 							}
@@ -78,6 +80,11 @@ templ PalletReceiptPage(data PageData) {
 									Finish
 								</button>
 							</form>
+						}
+						if data.CanPrintClosedLabel {
+							<a class="btn btn-soft btn-secondary btn-sm" href={ fmt.Sprintf("/tasker/pallets/%d/closed-label", data.PalletID) } target="_blank" rel="noopener">
+								Print Pallet Label
+							</a>
 						}
 						<a href="/tasker/pallets/progress" class="btn btn-ghost btn-sm">
 							<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="size-4">

@@ -56,17 +56,18 @@ type ReceiptLineView struct {
 }
 
 type PageData struct {
-	PalletID       int64
-	ProjectID      int64
-	ProjectName    string
-	ClientName     string
-	ProjectStatus  string
-	PalletStatus   string
-	IsAdmin        bool
-	IsScanner      bool
-	CanEdit        bool
-	CanManageLines bool
-	CanFinish      bool
-	Message        string
-	Lines          []ReceiptLineView
+	PalletID            int64
+	ProjectID           int64
+	ProjectName         string
+	ClientName          string
+	ProjectStatus       string
+	PalletStatus        string
+	IsAdmin             bool
+	IsScanner           bool
+	CanEdit             bool
+	CanManageLines      bool
+	CanFinish           bool
+	CanPrintClosedLabel bool
+	Message             string
+	Lines               []ReceiptLineView
 }

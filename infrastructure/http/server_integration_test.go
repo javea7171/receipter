@@ -904,6 +904,126 @@ func TestPalletProgressAdminAndScannerShowViewButton(t *testing.T) {
 	_ = resp.Body.Close()
 }
 
+func TestClosedPalletLabelVisibilityAndAccessByRole(t *testing.T) {
+	env, _ := setupIntegrationServer(t)
+	adminClient := newHTTPClient(t)
+	scannerClient := newHTTPClient(t)
+	clientHTTP := newHTTPClient(t)
+
+	loginAs(t, adminClient, env.server.URL, "admin", "Admin123!Receipter")
+	resp := postForm(t, adminClient, env.server.URL, "/tasker/pallets/new", nil)
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected create pallet 303, got %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+
+	resp = postForm(t, adminClient, env.server.URL, "/tasker/api/pallets/1/receipts", url.Values{
+		"sku":            {"SKU-CLOSED-LABEL"},
+		"description":    {"Closed label line"},
+		"qty":            {"24"},
+		"case_size":      {"12"},
+		"batch_number":   {"B-CL"},
+		"expiry_date":    {"2028-09-11"},
+		"carton_barcode": {"018787244258"},
+	})
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected add receipt line 303, got %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+
+	resp = get(t, adminClient, env.server.URL, "/tasker/pallets/1/closed-label")
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("expected open pallet closed-label request to fail with 409, got %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+
+	resp = postForm(t, adminClient, env.server.URL, "/tasker/api/pallets/1/close", nil)
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected close pallet 303, got %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+
+	resp = get(t, adminClient, env.server.URL, "/tasker/pallets/progress")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected admin progress 200, got %d", resp.StatusCode)
+	}
+	adminBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read admin progress body: %v", err)
+	}
+	_ = resp.Body.Close()
+	if !strings.Contains(string(adminBody), "/tasker/pallets/1/closed-label") {
+		t.Fatalf("expected admin progress to show closed label print link")
+	}
+
+	loginAs(t, scannerClient, env.server.URL, "scanner1", "Scanner123!Receipter")
+	resp = get(t, scannerClient, env.server.URL, "/tasker/pallets/progress")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected scanner progress 200, got %d", resp.StatusCode)
+	}
+	scannerBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read scanner progress body: %v", err)
+	}
+	_ = resp.Body.Close()
+	if !strings.Contains(string(scannerBody), "/tasker/pallets/1/closed-label") {
+		t.Fatalf("expected scanner progress to show closed label print link")
+	}
+
+	resp = get(t, scannerClient, env.server.URL, "/tasker/pallets/1/closed-label")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected scanner closed label route 200, got %d", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); !strings.Contains(ct, "application/pdf") {
+		t.Fatalf("expected pdf content type from closed label route, got %s", ct)
+	}
+	_ = resp.Body.Close()
+
+	var palletStatus string
+	err = env.db.WithReadTx(context.Background(), func(ctx context.Context, tx bun.Tx) error {
+		return tx.NewRaw(`SELECT status FROM pallets WHERE id = 1`).Scan(ctx, &palletStatus)
+	})
+	if err != nil {
+		t.Fatalf("read pallet status after closed-label print: %v", err)
+	}
+	if palletStatus != "labelled" {
+		t.Fatalf("expected pallet status labelled after closed-label print, got %s", palletStatus)
+	}
+
+	clientPassword := "Client123!Receipter"
+	_ = seedClientUser(t, env.db, "client-closed-label", clientPassword, 1)
+	resp = postForm(t, clientHTTP, env.server.URL, "/login", url.Values{
+		"username": {"client-closed-label"},
+		"password": {clientPassword},
+	})
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected client login 303, got %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+
+	resp = get(t, clientHTTP, env.server.URL, "/tasker/pallets/1/content-label")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected client content label page 200, got %d", resp.StatusCode)
+	}
+	clientBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read client content label page body: %v", err)
+	}
+	_ = resp.Body.Close()
+	if strings.Contains(string(clientBody), "/tasker/pallets/1/closed-label") {
+		t.Fatalf("client content label page should not show closed label print link")
+	}
+
+	resp = get(t, clientHTTP, env.server.URL, "/tasker/pallets/1/closed-label")
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected client closed label route denied with 303, got %d", resp.StatusCode)
+	}
+	if !strings.Contains(resp.Header.Get("Location"), "/login") {
+		t.Fatalf("expected client closed label route redirect to login, got %s", resp.Header.Get("Location"))
+	}
+	_ = resp.Body.Close()
+}
+
 func TestProjectLogsPage_AdminAllowedScannerDenied(t *testing.T) {
 	env, _ := setupIntegrationServer(t)
 	adminClient := newHTTPClient(t)

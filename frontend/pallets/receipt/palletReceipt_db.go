@@ -208,7 +208,7 @@ WHERE p.id = ?`, input.PalletID).Scan(ctx, &palletStatus, &projectID, &projectSt
 		if palletStatus == "cancelled" {
 			return fmt.Errorf("cancelled pallets are read-only")
 		}
-		if palletStatus != "created" && palletStatus != "open" && palletStatus != "closed" && palletStatus != "cancelled" {
+		if palletStatus != "created" && palletStatus != "open" && palletStatus != "closed" && palletStatus != "labelled" && palletStatus != "cancelled" {
 			return fmt.Errorf("invalid pallet status: %s", palletStatus)
 		}
 

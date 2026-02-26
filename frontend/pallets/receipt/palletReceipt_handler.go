@@ -46,14 +46,15 @@ func ReceiptPageQueryHandler(db *sqlite.DB, _ *cache.UserSessionCache) http.Hand
 		data.IsScanner = userHasRole(session.UserRoles, rbac.RoleScanner)
 		data.CanEdit = CanUserReceiptPallet(data.ProjectStatus, data.PalletStatus, session.UserRoles)
 		data.CanManageLines = CanManageReceiptLines(data.ProjectStatus, data.PalletStatus)
-		data.CanFinish = data.IsScanner && data.ProjectStatus == "active" && data.PalletStatus == "open"
+		data.CanFinish = (data.IsAdmin || data.IsScanner) && data.ProjectStatus == "active" && data.PalletStatus == "open"
+		data.CanPrintClosedLabel = isClosedLikeStatus(data.PalletStatus) && (data.IsAdmin || data.IsScanner)
 		if !data.CanEdit {
 			if data.ProjectStatus != "active" {
 				data.Message = "Project is inactive. This pallet is read-only."
 			} else if data.PalletStatus == "cancelled" {
 				data.Message = "Pallet is cancelled. This pallet is read-only."
 			} else {
-				data.Message = "Pallet is closed. Only admins can add or edit receipt lines."
+				data.Message = "Pallet is closed/labelled. Only admins can add or edit receipt lines."
 			}
 		}
 		if msg := strings.TrimSpace(r.URL.Query().Get("error")); msg != "" {
@@ -101,7 +102,7 @@ func CreateReceiptCommandHandler(db *sqlite.DB, auditSvc *audit.Service) http.Ha
 			return
 		}
 		if !CanUserReceiptPallet(projectStatus, palletStatus, session.UserRoles) {
-			msg := "closed pallets can only be edited by admins"
+			msg := "closed/labelled pallets can only be edited by admins"
 			if projectStatus != "active" {
 				msg = "inactive projects are read-only"
 			} else if palletStatus == "cancelled" {
@@ -345,6 +346,14 @@ func CanUserReceiptPallet(projectStatus, palletStatus string, userRoles []string
 		}
 		return false
 	}
+	if palletStatus == "labelled" {
+		for _, role := range userRoles {
+			if role == rbac.RoleAdmin {
+				return true
+			}
+		}
+		return false
+	}
 	return false
 }
 
@@ -353,6 +362,10 @@ func CanManageReceiptLines(projectStatus, palletStatus string) bool {
 		return false
 	}
 	return palletStatus == "created" || palletStatus == "open"
+}
+
+func isClosedLikeStatus(status string) bool {
+	return status == "closed" || status == "labelled"
 }
 
 // SearchStockQueryHandler returns matching stock codes.

@@ -98,8 +98,17 @@ func applyMigrationsFromFS(ctx context.Context, db *DB, migrationsFS fs.FS, root
 }
 
 func applySingleMigration(ctx context.Context, db *DB, name string, sqlBytes []byte) error {
+	sqlText := string(sqlBytes)
+	upper := strings.ToUpper(sqlText)
+	if strings.Contains(upper, "BEGIN TRANSACTION") || strings.Contains(upper, "BEGIN;") {
+		if _, err := db.WriteSQL.ExecContext(ctx, sqlText); err != nil {
+			return fmt.Errorf("apply migration %s: %w", name, err)
+		}
+		return nil
+	}
+
 	err := db.WithWriteTx(ctx, func(ctx context.Context, tx bun.Tx) error {
-		_, execErr := tx.ExecContext(ctx, string(sqlBytes))
+		_, execErr := tx.ExecContext(ctx, sqlText)
 		return execErr
 	})
 	if err != nil {

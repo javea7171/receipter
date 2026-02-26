@@ -93,6 +93,9 @@ func (s *Server) RegisterPalletRoutes(r chi.Router) {
 
 	s.Rbac.Add(rbac.RoleAdmin, "PALLET_LABEL_VIEW", http.MethodGet, "/tasker/pallets/*/label")
 	r.Get("/pallets/{id}/label", palletlabels.PalletLabelPageQueryHandler(s.DB))
+	s.Rbac.Add(rbac.RoleAdmin, "PALLET_CLOSED_LABEL_VIEW", http.MethodGet, "/tasker/pallets/*/closed-label")
+	s.Rbac.Add(rbac.RoleScanner, "PALLET_CLOSED_LABEL_VIEW", http.MethodGet, "/tasker/pallets/*/closed-label")
+	r.Get("/pallets/{id}/closed-label", palletlabels.ClosedPalletLabelPDFQueryHandler(s.DB, s.Audit))
 
 	s.Rbac.Add(rbac.RoleScanner, "PALLET_SCAN_VIEW", http.MethodGet, "/tasker/scan/pallet")
 	r.Get("/scan/pallet", palletlabels.ScanPalletPageQueryHandler())

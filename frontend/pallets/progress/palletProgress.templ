@@ -16,6 +16,9 @@ func statusBadge(status string) string {
 	if status == "open" {
 		return "badge badge-success"
 	}
+	if status == "labelled" {
+		return "badge badge-info"
+	}
 	if status == "cancelled" {
 		return "badge badge-error"
 	}
@@ -83,6 +86,7 @@ templ PalletProgressFragment(summary Summary) {
 								<option value="created" selected?={ filterSelected(summary.StatusFilter, "created") }>Created</option>
 								<option value="open" selected?={ filterSelected(summary.StatusFilter, "open") }>Open</option>
 								<option value="closed" selected?={ filterSelected(summary.StatusFilter, "closed") }>Closed</option>
+								<option value="labelled" selected?={ filterSelected(summary.StatusFilter, "labelled") }>Labelled</option>
 								<option value="cancelled" selected?={ filterSelected(summary.StatusFilter, "cancelled") }>Cancelled</option>
 							</select>
 						</fieldset>
@@ -179,7 +183,9 @@ templ PalletProgressFragment(summary Summary) {
 										<td class="text-sm">{ p.ClosedAt }</td>
 										<td class="text-sm">{ p.ReopenedAt }</td>
 										<td>
-											if summary.IsAdmin {
+											if summary.CanPrintClosedLabel && (p.Status == "closed" || p.Status == "labelled") {
+												<a class="btn btn-soft btn-secondary btn-sm" href={ fmt.Sprintf("/tasker/pallets/%d/closed-label", p.ID) } target="_blank" rel="noopener">Print Label</a>
+											} else if summary.IsAdmin {
 												<a class="btn btn-soft btn-secondary btn-sm" href={ fmt.Sprintf("/tasker/pallets/%d/label", p.ID) } target="_blank" rel="noopener">Reprint</a>
 											}
 										</td>
@@ -243,7 +249,9 @@ templ PalletProgressFragment(summary Summary) {
 										}
 									</div>
 									<div class="card-actions mt-1">
-										if summary.IsAdmin {
+										if summary.CanPrintClosedLabel && (p.Status == "closed" || p.Status == "labelled") {
+											<a class="btn btn-secondary btn-soft btn-sm flex-1" href={ fmt.Sprintf("/tasker/pallets/%d/closed-label", p.ID) } target="_blank" rel="noopener">Print Label</a>
+										} else if summary.IsAdmin {
 											<a class="btn btn-secondary btn-soft btn-sm flex-1" href={ fmt.Sprintf("/tasker/pallets/%d/label", p.ID) } target="_blank" rel="noopener">Reprint</a>
 										}
 										if summary.CanViewContent {

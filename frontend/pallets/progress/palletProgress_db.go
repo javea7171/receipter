@@ -14,21 +14,22 @@ import (
 )
 
 type Summary struct {
-	ProjectID          int64
-	ProjectName        string
-	ProjectClientName  string
-	ProjectStatus      string
-	IsAdmin            bool
-	CreatedCount       int
-	OpenCount          int
-	ClosedCount        int
-	CancelledCount     int
-	StatusFilter       string
-	CanViewContent     bool
-	CanCreatePallet    bool
-	CanOpenReceipt     bool
-	CanManageLifecycle bool
-	Pallets            []PalletRow
+	ProjectID           int64
+	ProjectName         string
+	ProjectClientName   string
+	ProjectStatus       string
+	IsAdmin             bool
+	CreatedCount        int
+	OpenCount           int
+	ClosedCount         int
+	CancelledCount      int
+	StatusFilter        string
+	CanViewContent      bool
+	CanCreatePallet     bool
+	CanOpenReceipt      bool
+	CanManageLifecycle  bool
+	CanPrintClosedLabel bool
+	Pallets             []PalletRow
 }
 
 type PalletRow struct {
@@ -56,7 +57,7 @@ func LoadSummary(ctx context.Context, db *sqlite.DB, projectID int64, statusFilt
 		if err := tx.NewRaw("SELECT COUNT(*) FROM pallets WHERE project_id = ? AND status = 'open'", projectID).Scan(ctx, &s.OpenCount); err != nil {
 			return err
 		}
-		if err := tx.NewRaw("SELECT COUNT(*) FROM pallets WHERE project_id = ? AND status = 'closed'", projectID).Scan(ctx, &s.ClosedCount); err != nil {
+		if err := tx.NewRaw("SELECT COUNT(*) FROM pallets WHERE project_id = ? AND status IN ('closed', 'labelled')", projectID).Scan(ctx, &s.ClosedCount); err != nil {
 			return err
 		}
 		if err := tx.NewRaw("SELECT COUNT(*) FROM pallets WHERE project_id = ? AND status = 'cancelled'", projectID).Scan(ctx, &s.CancelledCount); err != nil {
@@ -74,8 +75,12 @@ WHERE p.project_id = ?`
 		args := make([]any, 0, 2)
 		args = append(args, projectID)
 		if s.StatusFilter != "all" {
-			q += " AND p.status = ?"
-			args = append(args, s.StatusFilter)
+			if s.StatusFilter == "closed" {
+				q += " AND p.status IN ('closed', 'labelled')"
+			} else {
+				q += " AND p.status = ?"
+				args = append(args, s.StatusFilter)
+			}
 		}
 		q += " ORDER BY p.id DESC"
 
@@ -84,7 +89,7 @@ WHERE p.project_id = ?`
 		}
 		for i := range s.Pallets {
 			s.Pallets[i].CanClose = s.Pallets[i].Status == "open"
-			s.Pallets[i].CanReopen = s.Pallets[i].Status == "closed"
+			s.Pallets[i].CanReopen = s.Pallets[i].Status == "closed" || s.Pallets[i].Status == "labelled"
 			s.Pallets[i].CanCancel = s.Pallets[i].Status != "cancelled"
 		}
 		return nil
@@ -118,12 +123,12 @@ func updatePalletStatus(ctx context.Context, db *sqlite.DB, auditSvc *audit.Serv
 				return fmt.Errorf("pallet must be open to close")
 			}
 		case "open":
-			res, err := tx.NewRaw(`UPDATE pallets SET status = 'open', reopened_at = ? WHERE id = ? AND project_id = ? AND status = 'closed'`, now, palletID, projectID).Exec(ctx)
+			res, err := tx.NewRaw(`UPDATE pallets SET status = 'open', reopened_at = ? WHERE id = ? AND project_id = ? AND status IN ('closed', 'labelled')`, now, palletID, projectID).Exec(ctx)
 			if err != nil {
 				return err
 			}
 			if n, _ := res.RowsAffected(); n == 0 {
-				return fmt.Errorf("pallet must be closed to reopen")
+				return fmt.Errorf("pallet must be closed or labelled to reopen")
 			}
 		case "cancelled":
 			res, err := tx.NewRaw(`UPDATE pallets SET status = 'cancelled', closed_at = COALESCE(closed_at, ?), reopened_at = NULL WHERE id = ? AND project_id = ? AND status != 'cancelled'`, now, palletID, projectID).Exec(ctx)
@@ -171,6 +176,8 @@ func normalizeStatusFilter(v string) string {
 		return "closed"
 	case "cancelled":
 		return "cancelled"
+	case "labelled":
+		return "labelled"
 	default:
 		return "all"
 	}

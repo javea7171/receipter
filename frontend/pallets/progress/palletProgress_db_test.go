@@ -138,7 +138,10 @@ func TestLoadSummary_StatusFilterAndCounts(t *testing.T) {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO pallets (id, project_id, status, created_at) VALUES (3, 1, 'closed', CURRENT_TIMESTAMP)`); err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO pallets (id, project_id, status, created_at) VALUES (4, 1, 'cancelled', CURRENT_TIMESTAMP)`); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO pallets (id, project_id, status, created_at) VALUES (4, 1, 'labelled', CURRENT_TIMESTAMP)`); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO pallets (id, project_id, status, created_at) VALUES (5, 1, 'cancelled', CURRENT_TIMESTAMP)`); err != nil {
 			return err
 		}
 		return nil
@@ -151,7 +154,7 @@ func TestLoadSummary_StatusFilterAndCounts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load summary: %v", err)
 	}
-	if summary.CreatedCount != 1 || summary.OpenCount != 1 || summary.ClosedCount != 1 {
+	if summary.CreatedCount != 1 || summary.OpenCount != 1 || summary.ClosedCount != 2 {
 		t.Fatalf("unexpected counts: %+v", summary)
 	}
 	if summary.StatusFilter != "open" {
@@ -159,6 +162,19 @@ func TestLoadSummary_StatusFilterAndCounts(t *testing.T) {
 	}
 	if len(summary.Pallets) != 1 || summary.Pallets[0].Status != "open" {
 		t.Fatalf("expected only open pallets in filtered list, got %+v", summary.Pallets)
+	}
+
+	closedSummary, err := LoadSummary(context.Background(), db, 1, "closed")
+	if err != nil {
+		t.Fatalf("load closed summary: %v", err)
+	}
+	if len(closedSummary.Pallets) != 2 {
+		t.Fatalf("expected closed filter to include closed+labelled pallets, got %+v", closedSummary.Pallets)
+	}
+	for _, row := range closedSummary.Pallets {
+		if row.Status != "closed" && row.Status != "labelled" {
+			t.Fatalf("expected closed filter row to be closed/labelled, got %s", row.Status)
+		}
 	}
 }
 
@@ -178,7 +194,10 @@ func TestUpdatePalletStatus_InvalidTransitions(t *testing.T) {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO pallets (id, project_id, status, created_at) VALUES (3, 1, 'closed', CURRENT_TIMESTAMP)`); err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO pallets (id, project_id, status, created_at) VALUES (4, 1, 'cancelled', CURRENT_TIMESTAMP)`); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO pallets (id, project_id, status, created_at) VALUES (4, 1, 'labelled', CURRENT_TIMESTAMP)`); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO pallets (id, project_id, status, created_at) VALUES (5, 1, 'cancelled', CURRENT_TIMESTAMP)`); err != nil {
 			return err
 		}
 		return nil
@@ -194,9 +213,9 @@ func TestUpdatePalletStatus_InvalidTransitions(t *testing.T) {
 		wantError string
 	}{
 		{name: "created to closed", palletID: 1, toStatus: "closed", wantError: "pallet must be open to close"},
-		{name: "open to open", palletID: 2, toStatus: "open", wantError: "pallet must be closed to reopen"},
+		{name: "open to open", palletID: 2, toStatus: "open", wantError: "pallet must be closed or labelled to reopen"},
 		{name: "closed to closed", palletID: 3, toStatus: "closed", wantError: "pallet must be open to close"},
-		{name: "cancelled to cancelled", palletID: 4, toStatus: "cancelled", wantError: "pallet is already cancelled"},
+		{name: "cancelled to cancelled", palletID: 5, toStatus: "cancelled", wantError: "pallet is already cancelled"},
 		{name: "invalid target", palletID: 2, toStatus: "invalid", wantError: "invalid pallet status transition"},
 	}
 
@@ -213,6 +232,38 @@ func TestUpdatePalletStatus_InvalidTransitions(t *testing.T) {
 	}
 }
 
+func TestUpdatePalletStatus_ReopenFromLabelled(t *testing.T) {
+	db := openProgressTestDB(t)
+
+	err := db.WithWriteTx(context.Background(), func(ctx context.Context, tx bun.Tx) error {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO users (id, username, password_hash, role, created_at, updated_at) VALUES (1, 'admin', 'hash', 'admin', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO pallets (id, project_id, status, created_at, closed_at) VALUES (1, 1, 'labelled', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`); err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("seed labelled pallet: %v", err)
+	}
+
+	if err := updatePalletStatus(context.Background(), db, nil, 1, 1, 1, "open"); err != nil {
+		t.Fatalf("reopen labelled pallet: %v", err)
+	}
+
+	var status string
+	err = db.WithReadTx(context.Background(), func(ctx context.Context, tx bun.Tx) error {
+		return tx.NewRaw(`SELECT status FROM pallets WHERE id = 1`).Scan(ctx, &status)
+	})
+	if err != nil {
+		t.Fatalf("read pallet status: %v", err)
+	}
+	if status != "open" {
+		t.Fatalf("expected labelled pallet to reopen to open, got %s", status)
+	}
+}
+
 func TestNormalizeStatusFilter(t *testing.T) {
 	cases := []struct {
 		in   string
@@ -221,6 +272,7 @@ func TestNormalizeStatusFilter(t *testing.T) {
 		{in: "created", want: "created"},
 		{in: "OPEN", want: "open"},
 		{in: " closed ", want: "closed"},
+		{in: " labelled ", want: "labelled"},
 		{in: " cancelled ", want: "cancelled"},
 		{in: "", want: "all"},
 		{in: "unknown", want: "all"},

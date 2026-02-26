@@ -2,17 +2,63 @@ package labels
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/uptrace/bun"
 
+	"receipter/infrastructure/audit"
 	"receipter/infrastructure/sqlite"
 	"receipter/models"
 )
+
+var ErrPalletNotClosed = errors.New("pallet is not closed or labelled")
+
+type ClosedPalletLabelData struct {
+	PalletID     int64
+	ClientName   string
+	Description  string
+	SKU          string
+	ExpiryDate   string
+	LabelDate    string
+	BatchNumber  string
+	BarcodeValue string
+	BoxCount     int64
+	QtyPerCarton int64
+	TotalQty     int64
+}
+
+type closedLabelReceiptRow struct {
+	ID            int64  `bun:"id"`
+	SKU           string `bun:"sku"`
+	Description   string `bun:"description"`
+	BatchNumber   string `bun:"batch_number"`
+	ExpiryDateISO string `bun:"expiry_date_iso"`
+	ExpiryDateUK  string `bun:"expiry_date_uk"`
+	CaseSize      int64  `bun:"case_size"`
+	Qty           int64  `bun:"qty"`
+	CartonBarcode string `bun:"carton_barcode"`
+	ItemBarcode   string `bun:"item_barcode"`
+	UnknownSKU    int64  `bun:"unknown_sku"`
+	Damaged       int64  `bun:"damaged"`
+}
+
+type closedLabelGroupKey struct {
+	SKU           string
+	BatchNumber   string
+	ExpiryDateISO string
+}
+
+type closedLabelGroup struct {
+	FirstRowID int64
+	Label      ClosedPalletLabelData
+}
 
 func nextPalletID(ctx context.Context, tx bun.Tx) (int64, error) {
 	var id int64
@@ -78,6 +124,251 @@ func LoadPalletByID(ctx context.Context, db *sqlite.DB, id int64) (models.Pallet
 		return err
 	})
 	return pallet, err
+}
+
+func LoadClosedPalletLabelData(ctx context.Context, db *sqlite.DB, palletID int64) (ClosedPalletLabelData, error) {
+	labels, err := LoadClosedPalletLabelsData(ctx, db, palletID)
+	if err != nil {
+		return ClosedPalletLabelData{}, err
+	}
+	if len(labels) == 0 {
+		return ClosedPalletLabelData{}, sql.ErrNoRows
+	}
+	return labels[0], nil
+}
+
+func LoadClosedPalletLabelsData(ctx context.Context, db *sqlite.DB, palletID int64) ([]ClosedPalletLabelData, error) {
+	base := ClosedPalletLabelData{
+		PalletID:     palletID,
+		Description:  "N/A",
+		SKU:          "-",
+		ExpiryDate:   "-",
+		BatchNumber:  "-",
+		QtyPerCarton: 1,
+	}
+	labels := make([]ClosedPalletLabelData, 0, 1)
+	err := db.WithReadTx(ctx, func(ctx context.Context, tx bun.Tx) error {
+		var pallet struct {
+			ProjectID  int64      `bun:"project_id"`
+			Status     string     `bun:"status"`
+			ClientName string     `bun:"client_name"`
+			ClosedAt   *time.Time `bun:"closed_at"`
+		}
+		if err := tx.NewRaw(`
+SELECT p.project_id, p.status, COALESCE(pj.client_name, '') AS client_name, p.closed_at
+FROM pallets p
+JOIN projects pj ON pj.id = p.project_id
+WHERE p.id = ?`, palletID).Scan(ctx, &pallet); err != nil {
+			return err
+		}
+		if pallet.Status != "closed" && pallet.Status != "labelled" {
+			return ErrPalletNotClosed
+		}
+
+		clientName := strings.TrimSpace(pallet.ClientName)
+		if clientName == "" {
+			clientName = "Unknown Client"
+		}
+		base.ClientName = clientName
+
+		labelDate := time.Now()
+		if pallet.ClosedAt != nil && !pallet.ClosedAt.IsZero() {
+			labelDate = *pallet.ClosedAt
+		}
+		base.LabelDate = labelDate.Format("02/01/2006")
+
+		rows := make([]closedLabelReceiptRow, 0)
+		if err := tx.NewRaw(`
+SELECT pr.id,
+       COALESCE(pr.sku, '') AS sku,
+       COALESCE(pr.description, '') AS description,
+       COALESCE(pr.batch_number, '') AS batch_number,
+       COALESCE(date(pr.expiry_date), '') AS expiry_date_iso,
+       COALESCE(strftime('%d/%m/%Y', pr.expiry_date), '') AS expiry_date_uk,
+       COALESCE(pr.case_size, 1) AS case_size,
+       COALESCE(pr.qty, 0) AS qty,
+       COALESCE(pr.carton_barcode, '') AS carton_barcode,
+       COALESCE(pr.item_barcode, '') AS item_barcode,
+       COALESCE(pr.unknown_sku, 0) AS unknown_sku,
+       COALESCE(pr.damaged, 0) AS damaged
+FROM pallet_receipts pr
+WHERE pr.pallet_id = ?
+  AND pr.project_id = ?
+ORDER BY pr.id ASC`, palletID, pallet.ProjectID).Scan(ctx, &rows); err != nil {
+			return err
+		}
+
+		selectedRows := filterPreferredClosedLabelRows(rows)
+		if len(selectedRows) == 0 {
+			labels = append(labels, base)
+			return nil
+		}
+		labels = buildClosedLabelGroups(base, selectedRows)
+		return nil
+	})
+	return labels, err
+}
+
+func filterPreferredClosedLabelRows(rows []closedLabelReceiptRow) []closedLabelReceiptRow {
+	preferred := make([]closedLabelReceiptRow, 0, len(rows))
+	for _, row := range rows {
+		if row.UnknownSKU == 0 && row.Damaged == 0 {
+			preferred = append(preferred, row)
+		}
+	}
+	if len(preferred) > 0 {
+		return preferred
+	}
+	return rows
+}
+
+func buildClosedLabelGroups(base ClosedPalletLabelData, rows []closedLabelReceiptRow) []ClosedPalletLabelData {
+	firstItemBarcodeByProduct := make(map[string]string, len(rows))
+	firstCartonBarcodeByProduct := make(map[string]string, len(rows))
+	for _, row := range rows {
+		productKey := closedLabelProductKey(row)
+		if productKey == "" {
+			continue
+		}
+		if _, exists := firstItemBarcodeByProduct[productKey]; !exists {
+			if barcode := strings.TrimSpace(row.ItemBarcode); barcode != "" {
+				firstItemBarcodeByProduct[productKey] = barcode
+			}
+		}
+		if _, exists := firstCartonBarcodeByProduct[productKey]; !exists {
+			if barcode := strings.TrimSpace(row.CartonBarcode); barcode != "" {
+				firstCartonBarcodeByProduct[productKey] = barcode
+			}
+		}
+	}
+
+	groupOrder := make([]closedLabelGroupKey, 0, len(rows))
+	groups := make(map[closedLabelGroupKey]*closedLabelGroup, len(rows))
+	for _, row := range rows {
+		key := closedLabelGroupKey{
+			SKU:           strings.TrimSpace(row.SKU),
+			BatchNumber:   strings.TrimSpace(row.BatchNumber),
+			ExpiryDateISO: strings.TrimSpace(row.ExpiryDateISO),
+		}
+		group, exists := groups[key]
+		if !exists {
+			label := base
+			if description := strings.TrimSpace(row.Description); description != "" {
+				label.Description = description
+			}
+			if sku := strings.TrimSpace(row.SKU); sku != "" {
+				label.SKU = sku
+			}
+			if batch := strings.TrimSpace(row.BatchNumber); batch != "" {
+				label.BatchNumber = batch
+			}
+			if expiry := strings.TrimSpace(row.ExpiryDateUK); expiry != "" {
+				label.ExpiryDate = expiry
+			}
+			if row.CaseSize > 0 {
+				label.QtyPerCarton = row.CaseSize
+			}
+			productKey := closedLabelProductKey(row)
+			if barcode := strings.TrimSpace(firstItemBarcodeByProduct[productKey]); barcode != "" {
+				label.BarcodeValue = barcode
+			} else if barcode := strings.TrimSpace(firstCartonBarcodeByProduct[productKey]); barcode != "" {
+				label.BarcodeValue = barcode
+			} else if barcode := closedLabelRowBarcode(row); barcode != "" {
+				label.BarcodeValue = barcode
+			}
+			group = &closedLabelGroup{
+				FirstRowID: row.ID,
+				Label:      label,
+			}
+			groups[key] = group
+			groupOrder = append(groupOrder, key)
+		}
+
+		if row.Qty > 0 {
+			group.Label.TotalQty += row.Qty
+		}
+	}
+
+	sort.Slice(groupOrder, func(i, j int) bool {
+		return groups[groupOrder[i]].FirstRowID < groups[groupOrder[j]].FirstRowID
+	})
+
+	out := make([]ClosedPalletLabelData, 0, len(groupOrder))
+	for _, key := range groupOrder {
+		label := groups[key].Label
+		if label.QtyPerCarton <= 0 {
+			label.QtyPerCarton = 1
+		}
+		if label.TotalQty > 0 {
+			label.BoxCount = label.TotalQty / label.QtyPerCarton
+			if label.TotalQty%label.QtyPerCarton != 0 {
+				label.BoxCount++
+			}
+		}
+		out = append(out, label)
+	}
+	return out
+}
+
+func closedLabelProductKey(row closedLabelReceiptRow) string {
+	sku := strings.TrimSpace(row.SKU)
+	if sku != "" {
+		return "sku:" + strings.ToLower(sku)
+	}
+	description := strings.TrimSpace(row.Description)
+	if description != "" {
+		return "desc:" + strings.ToLower(description)
+	}
+	return ""
+}
+
+func closedLabelRowBarcode(row closedLabelReceiptRow) string {
+	barcodeValue := strings.TrimSpace(row.ItemBarcode)
+	if barcodeValue == "" {
+		barcodeValue = strings.TrimSpace(row.CartonBarcode)
+	}
+	return barcodeValue
+}
+
+func MarkPalletLabelled(ctx context.Context, db *sqlite.DB, auditSvc *audit.Service, userID, palletID int64) error {
+	return db.WithWriteTx(ctx, func(ctx context.Context, tx bun.Tx) error {
+		before, err := loadPalletByID(ctx, tx, palletID)
+		if err != nil {
+			return err
+		}
+		if before.Status == "labelled" {
+			return nil
+		}
+		if before.Status != "closed" {
+			return ErrPalletNotClosed
+		}
+
+		res, err := tx.NewRaw(`UPDATE pallets SET status = 'labelled' WHERE id = ? AND status = 'closed'`, palletID).Exec(ctx)
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			after, err := loadPalletByID(ctx, tx, palletID)
+			if err != nil {
+				return err
+			}
+			if after.Status == "labelled" {
+				return nil
+			}
+			return ErrPalletNotClosed
+		}
+
+		after, err := loadPalletByID(ctx, tx, palletID)
+		if err != nil {
+			return err
+		}
+		if auditSvc != nil && userID > 0 {
+			if err := auditSvc.Write(ctx, tx, userID, "pallet.label", "pallets", strconv.FormatInt(palletID, 10), before, after); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 func normalizeContentFilter(v string) string {

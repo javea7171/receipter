@@ -210,7 +210,7 @@ func PalletCountsByProjectIDs(ctx context.Context, db *sqlite.DB, projectIDs []i
 SELECT project_id, status, COUNT(1) AS status_count
 FROM pallets
 WHERE project_id IN (?)
-  AND status IN ('created', 'open', 'closed')
+  AND status IN ('created', 'open', 'closed', 'labelled')
 GROUP BY project_id, status`, bun.In(filtered)).Scan(ctx, &rows)
 	})
 	if err != nil {
@@ -226,6 +226,8 @@ GROUP BY project_id, status`, bun.In(filtered)).Scan(ctx, &rows)
 			c.OpenCount = row.Count
 		case "closed":
 			c.ClosedCount = row.Count
+		case "labelled":
+			c.ClosedCount += row.Count
 		}
 		counts[row.ProjectID] = c
 	}
