@@ -166,6 +166,8 @@ function stopScanner() {
   const descriptionInput = document.getElementById("description_input");
   const uomInput = document.getElementById("uom_input");
   const suggestions = document.getElementById("sku_suggestions");
+  const cartonBarcodeInput = document.getElementById("carton_barcode");
+  const itemBarcodeInput = document.getElementById("item_barcode");
   const qtyInput = document.getElementById("qty_input");
   const caseSizeInput = document.getElementById("case_size_input");
   const batchInput = document.getElementById("batch_input");
@@ -257,6 +259,8 @@ function stopScanner() {
     });
   }
 
+  wireEnterFocus(cartonBarcodeInput, itemBarcodeInput);
+  wireEnterFocus(itemBarcodeInput, qtyInput);
   wireEnterFocus(qtyInput, caseSizeInput);
   wireEnterFocus(caseSizeInput, batchInput);
   wireEnterFocus(batchInput, expiryInput);

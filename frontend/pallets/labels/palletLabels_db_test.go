@@ -63,7 +63,7 @@ INSERT INTO pallet_receipts (
 	no_outer_barcode, no_inner_barcode, created_at, updated_at
 ) VALUES (
 	1, 1, 'SKU1', 'Item 1', 2, 5, 0, 0,
-	'B-1', '2028-03-12', '', '',
+	'B-1', '2028-03-12', 'OUT-001', 'IN-001',
 	0, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
 )`); err != nil {
 			return err
@@ -101,6 +101,12 @@ VALUES (
 	}
 	if lines[0].Damaged {
 		t.Fatalf("expected damaged=false for seeded line")
+	}
+	if lines[0].CartonBarcode != "OUT-001" {
+		t.Fatalf("expected carton barcode OUT-001, got %q", lines[0].CartonBarcode)
+	}
+	if lines[0].ItemBarcode != "IN-001" {
+		t.Fatalf("expected item barcode IN-001, got %q", lines[0].ItemBarcode)
 	}
 
 	events, err := LoadPalletEventLog(context.Background(), db, 1)
@@ -221,9 +227,9 @@ func TestLoadPalletContentLineDetail_IncludesCommentAndPhotos(t *testing.T) {
 		}
 		if _, err := tx.ExecContext(ctx, `
 INSERT INTO pallet_receipts (
-	id, project_id, pallet_id, sku, description, uom, comment, scanned_by_user_id, qty, case_size, unknown_sku, damaged, damaged_qty, batch_number, expiry_date, stock_photo_blob, created_at, updated_at
+	id, project_id, pallet_id, sku, description, uom, comment, scanned_by_user_id, qty, case_size, unknown_sku, damaged, damaged_qty, batch_number, expiry_date, carton_barcode, item_barcode, stock_photo_blob, created_at, updated_at
 ) VALUES (
-	10, 1, 1, 'SKU-D1', 'Detail item', 'unit', 'line comment', 1, 3, 2, 0, 0, 0, 'B1', '2000-01-01', X'0102', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+	10, 1, 1, 'SKU-D1', 'Detail item', 'unit', 'line comment', 1, 3, 2, 0, 0, 0, 'B1', '2000-01-01', 'OUT-D1', 'IN-D1', X'0102', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
 )`); err != nil {
 			return err
 		}
@@ -253,6 +259,12 @@ VALUES
 	}
 	if line.Comment != "line comment" {
 		t.Fatalf("expected comment to load, got %q", line.Comment)
+	}
+	if line.CartonBarcode != "OUT-D1" {
+		t.Fatalf("expected carton barcode OUT-D1, got %q", line.CartonBarcode)
+	}
+	if line.ItemBarcode != "IN-D1" {
+		t.Fatalf("expected item barcode IN-D1, got %q", line.ItemBarcode)
 	}
 	if !line.HasPrimaryPhoto {
 		t.Fatalf("expected primary photo flag true")

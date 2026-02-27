@@ -426,6 +426,8 @@ func LoadPalletContent(ctx context.Context, db *sqlite.DB, id int64, filter stri
 		whereExtra := contentFilterWhereClause(filter)
 		return tx.NewRaw(`
 SELECT pr.id, pr.sku, pr.description, COALESCE(pr.uom, '') AS uom, COALESCE(pr.comment, '') AS comment,
+       COALESCE(pr.carton_barcode, '') AS carton_barcode,
+       COALESCE(pr.item_barcode, '') AS item_barcode,
        CASE
          WHEN (pr.stock_photo_blob IS NOT NULL AND length(pr.stock_photo_blob) > 0) THEN 1
          WHEN EXISTS (SELECT 1 FROM receipt_photos rp WHERE rp.pallet_receipt_id = pr.id) THEN 1
@@ -465,6 +467,8 @@ func LoadPalletContentLineDetail(ctx context.Context, db *sqlite.DB, palletID, r
 			SKU             string `bun:"sku"`
 			Description     string `bun:"description"`
 			UOM             string `bun:"uom"`
+			CartonBarcode   string `bun:"carton_barcode"`
+			ItemBarcode     string `bun:"item_barcode"`
 			Comment         string `bun:"comment"`
 			Qty             int64  `bun:"qty"`
 			CaseSize        int64  `bun:"case_size"`
@@ -478,7 +482,10 @@ func LoadPalletContentLineDetail(ctx context.Context, db *sqlite.DB, palletID, r
 			HasPrimaryPhoto bool   `bun:"has_primary_photo"`
 		}{}
 		if err := tx.NewRaw(`
-SELECT pr.id, pr.sku, pr.description, COALESCE(pr.uom, '') AS uom, COALESCE(pr.comment, '') AS comment, pr.qty, pr.case_size, pr.unknown_sku, pr.damaged,
+SELECT pr.id, pr.sku, pr.description, COALESCE(pr.uom, '') AS uom,
+       COALESCE(pr.carton_barcode, '') AS carton_barcode,
+       COALESCE(pr.item_barcode, '') AS item_barcode,
+       COALESCE(pr.comment, '') AS comment, pr.qty, pr.case_size, pr.unknown_sku, pr.damaged,
        COALESCE(pr.batch_number, '') AS batch_number,
        COALESCE(strftime('%d/%m/%Y', pr.expiry_date), '') AS expiry_date,
        COALESCE(strftime('%Y-%m-%d', pr.expiry_date), '') AS expiry_date_iso,
@@ -497,6 +504,8 @@ LIMIT 1`, receiptID, palletID, pallet.ProjectID).Scan(ctx, &row); err != nil {
 		detail.SKU = row.SKU
 		detail.Description = row.Description
 		detail.UOM = row.UOM
+		detail.CartonBarcode = row.CartonBarcode
+		detail.ItemBarcode = row.ItemBarcode
 		detail.Comment = row.Comment
 		detail.Qty = row.Qty
 		detail.CaseSize = row.CaseSize

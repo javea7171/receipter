@@ -280,6 +280,73 @@ WHERE pr.pallet_id = ? AND pr.sku = ? AND pr.damaged = 1`, 44, "SPLIT-1").Scan(c
 	}
 }
 
+func TestSaveReceipt_SplitDamagedAttachesMediaToDamagedLine(t *testing.T) {
+	db := openTestDB(t)
+	seedPallet(t, db, 45)
+
+	expiry, _ := time.Parse("2006-01-02", "2027-08-16")
+	in := ReceiptInput{
+		PalletID:       45,
+		SKU:            "SPLIT-PHOTO-1",
+		Description:    "Split damaged photo",
+		Qty:            3,
+		Damaged:        true,
+		DamagedQty:     2,
+		BatchNumber:    "SP1",
+		ExpiryDate:     &expiry,
+		StockPhotoBlob: []byte{0xFF, 0xD8, 0xFF, 0xD9},
+		StockPhotoMIME: "image/jpeg",
+		StockPhotoName: "damaged.jpg",
+		Photos: []PhotoInput{
+			{Blob: []byte{0x89, 0x50, 0x4E, 0x47}, MIMEType: "image/png", FileName: "damaged-extra.png"},
+		},
+	}
+	if err := SaveReceipt(context.Background(), db, nil, 1, in); err != nil {
+		t.Fatalf("save split receipt with media: %v", err)
+	}
+
+	var nonDamagedPrimary, damagedPrimary int64
+	var nonDamagedExtra, damagedExtra int64
+	err := db.WithReadTx(context.Background(), func(ctx context.Context, tx bun.Tx) error {
+		if err := tx.NewRaw(`
+SELECT CASE WHEN stock_photo_blob IS NOT NULL AND length(stock_photo_blob) > 0 THEN 1 ELSE 0 END
+FROM pallet_receipts
+WHERE pallet_id = ? AND sku = ? AND damaged = 0
+LIMIT 1`, 45, "SPLIT-PHOTO-1").Scan(ctx, &nonDamagedPrimary); err != nil {
+			return err
+		}
+		if err := tx.NewRaw(`
+SELECT CASE WHEN stock_photo_blob IS NOT NULL AND length(stock_photo_blob) > 0 THEN 1 ELSE 0 END
+FROM pallet_receipts
+WHERE pallet_id = ? AND sku = ? AND damaged = 1
+LIMIT 1`, 45, "SPLIT-PHOTO-1").Scan(ctx, &damagedPrimary); err != nil {
+			return err
+		}
+		if err := tx.NewRaw(`
+SELECT COUNT(*)
+FROM receipt_photos rp
+JOIN pallet_receipts pr ON pr.id = rp.pallet_receipt_id
+WHERE pr.pallet_id = ? AND pr.sku = ? AND pr.damaged = 0`, 45, "SPLIT-PHOTO-1").Scan(ctx, &nonDamagedExtra); err != nil {
+			return err
+		}
+		return tx.NewRaw(`
+SELECT COUNT(*)
+FROM receipt_photos rp
+JOIN pallet_receipts pr ON pr.id = rp.pallet_receipt_id
+WHERE pr.pallet_id = ? AND pr.sku = ? AND pr.damaged = 1`, 45, "SPLIT-PHOTO-1").Scan(ctx, &damagedExtra)
+	})
+	if err != nil {
+		t.Fatalf("load split media rows: %v", err)
+	}
+
+	if nonDamagedPrimary != 0 || nonDamagedExtra != 0 {
+		t.Fatalf("expected no media on non-damaged line, got primary=%d extra=%d", nonDamagedPrimary, nonDamagedExtra)
+	}
+	if damagedPrimary != 1 || damagedExtra != 1 {
+		t.Fatalf("expected media on damaged line, got primary=%d extra=%d", damagedPrimary, damagedExtra)
+	}
+}
+
 func TestSaveReceipt_PromotesCreatedPalletToOpenOnFirstLine(t *testing.T) {
 	db := openTestDB(t)
 	seedPalletWithStatus(t, db, 6, "created")

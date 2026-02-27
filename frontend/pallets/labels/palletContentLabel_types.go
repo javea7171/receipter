@@ -5,6 +5,8 @@ type ContentLine struct {
 	SKU               string `bun:"sku"`
 	Description       string `bun:"description"`
 	UOM               string `bun:"uom"`
+	CartonBarcode     string `bun:"carton_barcode"`
+	ItemBarcode       string `bun:"item_barcode"`
 	Comment           string `bun:"comment"`
 	HasPhotos         bool   `bun:"has_photos"`
 	HasClientComments bool   `bun:"has_client_comments"`
@@ -24,6 +26,8 @@ type ContentLineDetail struct {
 	SKU             string
 	Description     string
 	UOM             string
+	CartonBarcode   string
+	ItemBarcode     string
 	Comment         string
 	Qty             int64
 	CaseSize        int64

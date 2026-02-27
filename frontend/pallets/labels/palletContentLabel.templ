@@ -148,6 +148,8 @@ templ PalletContentLabelFragment(palletID int64, projectID int64, status string,
 									<th>Case Size</th>
 									<th>Unknown SKU</th>
 									<th>Damaged</th>
+									<th>Outer Barcode</th>
+									<th>Inner Barcode</th>
 									<th>Batch</th>
 										<th>Expiry</th>
 										<th>Expired</th>
@@ -158,7 +160,7 @@ templ PalletContentLabelFragment(palletID int64, projectID int64, status string,
 								<tbody>
 									if len(lines) == 0 {
 										<tr>
-										<td colspan="15" class="text-base-content/60">No receipt lines for this filter.</td>
+										<td colspan="17" class="text-base-content/60">No receipt lines for this filter.</td>
 										</tr>
 									}
 									for _, line := range lines {
@@ -199,6 +201,20 @@ templ PalletContentLabelFragment(palletID int64, projectID int64, status string,
 									<td>{ line.CaseSize }</td>
 									<td>{ damagedText(line.UnknownSKU) }</td>
 									<td>{ damagedText(line.Damaged) }</td>
+										<td>
+											if line.CartonBarcode != "" {
+												<span class="font-mono text-xs sm:text-sm">{ line.CartonBarcode }</span>
+											} else {
+												<span class="text-base-content/30">--</span>
+											}
+										</td>
+										<td>
+											if line.ItemBarcode != "" {
+												<span class="font-mono text-xs sm:text-sm">{ line.ItemBarcode }</span>
+											} else {
+												<span class="text-base-content/30">--</span>
+											}
+										</td>
 										<td>{ line.BatchNumber }</td>
 											<td>{ line.ExpiryDateUK }</td>
 											<td>{ damagedText(line.Expired) }</td>
@@ -259,6 +275,22 @@ templ PalletContentLabelFragment(palletID int64, projectID int64, status string,
 										<div>{ damagedText(line.UnknownSKU) }</div>
 										<div class="text-base-content/60">Damaged</div>
 										<div>{ damagedText(line.Damaged) }</div>
+										<div class="text-base-content/60">Outer Barcode</div>
+										<div>
+											if line.CartonBarcode != "" {
+												<span class="font-mono text-xs sm:text-sm break-all">{ line.CartonBarcode }</span>
+											} else {
+												<span class="text-base-content/30">--</span>
+											}
+										</div>
+										<div class="text-base-content/60">Inner Barcode</div>
+										<div>
+											if line.ItemBarcode != "" {
+												<span class="font-mono text-xs sm:text-sm break-all">{ line.ItemBarcode }</span>
+											} else {
+												<span class="text-base-content/30">--</span>
+											}
+										</div>
 										<div class="text-base-content/60">Batch</div>
 										<div>{ line.BatchNumber }</div>
 										<div class="text-base-content/60">Expiry</div>
@@ -373,6 +405,22 @@ templ PalletContentLineDetailPage(palletID int64, status string, canPrintClosedL
 							<div>{ line.Description }</div>
 							<div class="text-base-content/60">Unit of measure</div>
 							<div>{ line.UOM }</div>
+							<div class="text-base-content/60">Outer barcode</div>
+							<div>
+								if line.CartonBarcode != "" {
+									<span class="font-mono text-xs sm:text-sm break-all">{ line.CartonBarcode }</span>
+								} else {
+									<span class="text-base-content/30">--</span>
+								}
+							</div>
+							<div class="text-base-content/60">Inner barcode</div>
+							<div>
+								if line.ItemBarcode != "" {
+									<span class="font-mono text-xs sm:text-sm break-all">{ line.ItemBarcode }</span>
+								} else {
+									<span class="text-base-content/30">--</span>
+								}
+							</div>
 							<div class="text-base-content/60">Qty</div>
 							<div>{ line.Qty }</div>
 							<div class="text-base-content/60">Case Size</div>

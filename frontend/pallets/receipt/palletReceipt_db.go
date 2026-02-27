@@ -239,8 +239,8 @@ WHERE p.id = ?`, input.PalletID).Scan(ctx, &palletStatus, &projectID, &projectSt
 			return fmt.Errorf("qty must be greater than 0")
 		}
 
-		attachMedia := true
-		for _, segment := range segments {
+		attachToDamagedSegment := input.DamagedQty > 0
+		for i, segment := range segments {
 			lineInput := input
 			lineInput.Qty = segment.qty
 			lineInput.Damaged = segment.damaged
@@ -249,6 +249,7 @@ WHERE p.id = ?`, input.PalletID).Scan(ctx, &palletStatus, &projectID, &projectSt
 			} else {
 				lineInput.DamagedQty = 0
 			}
+			attachMedia := (attachToDamagedSegment && segment.damaged) || (!attachToDamagedSegment && i == 0)
 			if !attachMedia {
 				lineInput.StockPhotoBlob = nil
 				lineInput.StockPhotoMIME = ""
@@ -259,7 +260,6 @@ WHERE p.id = ?`, input.PalletID).Scan(ctx, &palletStatus, &projectID, &projectSt
 			if err := upsertReceiptLine(ctx, tx, auditSvc, userID, projectID, input.SKU, input.Description, input.UOM, lineInput); err != nil {
 				return err
 			}
-			attachMedia = false
 		}
 
 		if err := promotePalletToOpenIfCreated(ctx, tx, projectID, input.PalletID); err != nil {
