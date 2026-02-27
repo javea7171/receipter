@@ -5,11 +5,23 @@ type SKUSummaryPageData struct {
 	ProjectName       string
 	ProjectClientName string
 	ProjectStatus     string
+	ProjectScope      string
+	ScopeOptions      []ProjectScopeOption
+	CanOpenDetail     bool
 	IsAdmin           bool
 	IsClient          bool
 	CanExport         bool
 	Filter            string
+	TotalQtySum       int64
+	SuccessQtySum     int64
+	UnknownQtySum     int64
+	DamagedQtySum     int64
 	Rows              []SKUSummaryRow
+}
+
+type ProjectScopeOption struct {
+	Value string
+	Label string
 }
 
 type SKUSummaryRow struct {
@@ -34,6 +46,7 @@ type SKUDetailedPageData struct {
 	ProjectName         string
 	ProjectClientName   string
 	ProjectStatus       string
+	ProjectScope        string
 	IsAdmin             bool
 	IsClient            bool
 	CanAddClientComment bool

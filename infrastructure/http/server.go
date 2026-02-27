@@ -216,14 +216,10 @@ func (s *Server) ensureSessionActiveProject(ctx context.Context, session *models
 		return
 	}
 	if session.User.Role == rbac.RoleClient {
-		projectID := session.User.ClientProjectID
-		if projectID != nil && *projectID > 0 {
-			if _, err := projectinfra.LoadByID(ctx, s.DB, *projectID); err != nil {
-				slog.Error("resolve client session project failed", slog.String("session_id", session.ID), slog.Any("err", err))
-				projectID = nil
-			}
-		} else {
-			projectID = nil
+		projectID, err := projectinfra.ResolveClientActiveProjectID(ctx, s.DB, session.UserID, session.ActiveProjectID)
+		if err != nil {
+			slog.Error("resolve client session project failed", slog.String("session_id", session.ID), slog.Any("err", err))
+			return
 		}
 		if sameProjectID(session.ActiveProjectID, projectID) {
 			return

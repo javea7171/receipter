@@ -318,6 +318,22 @@ func projectIDByCode(t *testing.T, db *sqlite.DB, code string) int64 {
 	return id
 }
 
+func clientAccessProjectIDs(t *testing.T, db *sqlite.DB, userID int64) []int64 {
+	t.Helper()
+	ids := make([]int64, 0)
+	err := db.WithReadTx(context.Background(), func(ctx context.Context, tx bun.Tx) error {
+		return tx.NewRaw(`
+SELECT project_id
+FROM client_project_access
+WHERE user_id = ?
+ORDER BY project_id ASC`, userID).Scan(ctx, &ids)
+	})
+	if err != nil {
+		t.Fatalf("load client project access for user %d: %v", userID, err)
+	}
+	return ids
+}
+
 func userRoleByUsername(t *testing.T, db *sqlite.DB, username string) (role string, found bool) {
 	t.Helper()
 	err := db.WithReadTx(context.Background(), func(ctx context.Context, tx bun.Tx) error {
@@ -350,9 +366,16 @@ func seedClientUser(t *testing.T, db *sqlite.DB, username, password string, proj
 		t.Fatalf("seed base user for client: %v", err)
 	}
 	err := db.WithWriteTx(context.Background(), func(ctx context.Context, tx bun.Tx) error {
+		if _, err := tx.ExecContext(ctx, `
+	UPDATE users
+	SET role = 'client', client_project_id = ?, updated_at = CURRENT_TIMESTAMP
+	WHERE LOWER(username) = LOWER(?)`, projectID, username); err != nil {
+			return err
+		}
 		_, err := tx.ExecContext(ctx, `
-UPDATE users
-SET role = 'client', client_project_id = ?, updated_at = CURRENT_TIMESTAMP
+INSERT OR IGNORE INTO client_project_access (user_id, project_id, created_at)
+SELECT id, ?, CURRENT_TIMESTAMP
+FROM users
 WHERE LOWER(username) = LOWER(?)`, projectID, username)
 		return err
 	})
@@ -992,14 +1015,7 @@ func TestClosedPalletLabelVisibilityAndAccessByRole(t *testing.T) {
 
 	clientPassword := "Client123!Receipter"
 	_ = seedClientUser(t, env.db, "client-closed-label", clientPassword, 1)
-	resp = postForm(t, clientHTTP, env.server.URL, "/login", url.Values{
-		"username": {"client-closed-label"},
-		"password": {clientPassword},
-	})
-	if resp.StatusCode != http.StatusSeeOther {
-		t.Fatalf("expected client login 303, got %d", resp.StatusCode)
-	}
-	_ = resp.Body.Close()
+	loginAs(t, clientHTTP, env.server.URL, "client-closed-label", clientPassword)
 
 	resp = get(t, clientHTTP, env.server.URL, "/tasker/pallets/1/content-label")
 	if resp.StatusCode != http.StatusOK {
@@ -1102,6 +1118,77 @@ func TestAdminUsersCreateRoute_AdminAllowedScannerDenied(t *testing.T) {
 	_, found = userRoleByUsername(t, env.db, "blockedscanner")
 	if found {
 		t.Fatalf("scanner should not be able to create users")
+	}
+}
+
+func TestAdminClientProjectAccessRoute_AdminAllowedScannerDenied(t *testing.T) {
+	env, _ := setupIntegrationServer(t)
+	adminClient := newHTTPClient(t)
+	scannerClient := newHTTPClient(t)
+
+	loginAs(t, adminClient, env.server.URL, "admin", "Admin123!Receipter")
+
+	resp := postForm(t, adminClient, env.server.URL, "/tasker/projects", url.Values{
+		"name":         {"Client Access Two"},
+		"description":  {"Second project for client access route test"},
+		"project_date": {"2026-02-26"},
+		"client_name":  {"Boba Formosa"},
+		"code":         {"client-access-two"},
+		"status":       {"active"},
+	})
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected create project 303, got %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+	project2ID := projectIDByCode(t, env.db, "client-access-two")
+
+	clientPassword := "ClientAccess123!Pass"
+	clientUserID := seedClientUser(t, env.db, "client-route", clientPassword, 1)
+
+	resp = postForm(t, adminClient, env.server.URL, "/tasker/admin/users/client-project-access", url.Values{
+		"client_user_id":            {strconv.FormatInt(clientUserID, 10)},
+		"client_project_ids_update": {"1", strconv.FormatInt(project2ID, 10)},
+	})
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected admin client-project-access update 303, got %d", resp.StatusCode)
+	}
+	if !strings.Contains(resp.Header.Get("Location"), "/tasker/admin/users?status=") {
+		t.Fatalf("expected success redirect to users page, got %s", resp.Header.Get("Location"))
+	}
+	_ = resp.Body.Close()
+
+	access := clientAccessProjectIDs(t, env.db, clientUserID)
+	if len(access) != 2 || access[0] != 1 || access[1] != project2ID {
+		t.Fatalf("expected client access [1 %d], got %+v", project2ID, access)
+	}
+
+	var anchorProjectID int64
+	err := env.db.WithReadTx(context.Background(), func(ctx context.Context, tx bun.Tx) error {
+		return tx.NewRaw(`SELECT client_project_id FROM users WHERE id = ?`, clientUserID).Scan(ctx, &anchorProjectID)
+	})
+	if err != nil {
+		t.Fatalf("load client anchor project: %v", err)
+	}
+	if anchorProjectID != 1 {
+		t.Fatalf("expected client anchor project 1, got %d", anchorProjectID)
+	}
+
+	loginAs(t, scannerClient, env.server.URL, "scanner1", "Scanner123!Receipter")
+	resp = postForm(t, scannerClient, env.server.URL, "/tasker/admin/users/client-project-access", url.Values{
+		"client_user_id":            {strconv.FormatInt(clientUserID, 10)},
+		"client_project_ids_update": {strconv.FormatInt(project2ID, 10)},
+	})
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected scanner denied redirect 303, got %d", resp.StatusCode)
+	}
+	if !strings.Contains(resp.Header.Get("Location"), "/login") {
+		t.Fatalf("expected scanner client-project-access redirect to login, got %s", resp.Header.Get("Location"))
+	}
+	_ = resp.Body.Close()
+
+	access = clientAccessProjectIDs(t, env.db, clientUserID)
+	if len(access) != 2 || access[0] != 1 || access[1] != project2ID {
+		t.Fatalf("scanner should not change client access; expected [1 %d], got %+v", project2ID, access)
 	}
 }
 
@@ -2014,12 +2101,14 @@ func TestClientRoleSkuOnlyNavigationCommentAndExports(t *testing.T) {
 	_ = resp.Body.Close()
 
 	resp = postForm(t, clientHTTP, env.server.URL, "/tasker/pallets/sku-view/detail/comment", url.Values{
-		"sku":       {"SKU-C1"},
-		"uom":       {""},
-		"batch":     {"CB1"},
-		"expiry":    {"2029-01-01"},
-		"pallet_id": {"1"},
-		"comment":   {"Client side note"},
+		"project_id":    {"1"},
+		"project_scope": {"1"},
+		"sku":           {"SKU-C1"},
+		"uom":           {""},
+		"batch":         {"CB1"},
+		"expiry":        {"2029-01-01"},
+		"pallet_id":     {"1"},
+		"comment":       {"Client side note"},
 	})
 	if resp.StatusCode != http.StatusSeeOther {
 		t.Fatalf("expected client comment create 303, got %d", resp.StatusCode)
@@ -2098,6 +2187,165 @@ LIMIT 1`).Scan(ctx, &createdBy, &palletID)
 	csvText = string(body)
 	if !strings.Contains(csvText, "receipt_id") || !strings.Contains(csvText, "SKU-C1") {
 		t.Fatalf("expected detail export header and row, got %s", csvText)
+	}
+}
+
+func TestClientSkuViewProjectScope_AllAndSpecific(t *testing.T) {
+	env, _ := setupIntegrationServer(t)
+	adminClient := newHTTPClient(t)
+	clientHTTP := newHTTPClient(t)
+
+	loginAs(t, adminClient, env.server.URL, "admin", "Admin123!Receipter")
+
+	resp := postForm(t, adminClient, env.server.URL, "/tasker/projects", url.Values{
+		"name":         {"Scope Project Two"},
+		"description":  {"Second project for client scope test"},
+		"project_date": {"2026-02-26"},
+		"client_name":  {"Boba Formosa"},
+		"code":         {"scope-project-two"},
+		"status":       {"active"},
+	})
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected create project 303, got %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+	project2ID := projectIDByCode(t, env.db, "scope-project-two")
+
+	resp = postForm(t, adminClient, env.server.URL, "/tasker/projects/1/activate", nil)
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected activate project 1 redirect 303, got %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+	resp = postForm(t, adminClient, env.server.URL, "/tasker/pallets/new", nil)
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected create pallet 1 redirect 303, got %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+	resp = postForm(t, adminClient, env.server.URL, "/tasker/api/pallets/1/receipts", url.Values{
+		"sku":          {"SKU-SCOPE-A"},
+		"description":  {"Scope Item A"},
+		"qty":          {"3"},
+		"batch_number": {"SA"},
+		"expiry_date":  {"2029-01-01"},
+	})
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected create receipt in project 1 redirect 303, got %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+
+	resp = postForm(t, adminClient, env.server.URL, "/tasker/projects/"+strconv.FormatInt(project2ID, 10)+"/activate", nil)
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected activate project %d redirect 303, got %d", project2ID, resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+	resp = postForm(t, adminClient, env.server.URL, "/tasker/pallets/new", nil)
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected create pallet 2 redirect 303, got %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+	resp = postForm(t, adminClient, env.server.URL, "/tasker/api/pallets/2/receipts", url.Values{
+		"sku":          {"SKU-SCOPE-B"},
+		"description":  {"Scope Item B"},
+		"qty":          {"4"},
+		"batch_number": {"SB"},
+		"expiry_date":  {"2029-02-01"},
+	})
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected create receipt in project 2 redirect 303, got %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+
+	clientPassword := "ClientScope123!Pass"
+	clientUserID := seedClientUser(t, env.db, "client-scope", clientPassword, 1)
+	resp = postForm(t, adminClient, env.server.URL, "/tasker/admin/users/client-project-access", url.Values{
+		"client_user_id":            {strconv.FormatInt(clientUserID, 10)},
+		"client_project_ids_update": {"1", strconv.FormatInt(project2ID, 10)},
+	})
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected client project access update 303, got %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+
+	loginAs(t, clientHTTP, env.server.URL, "client-scope", clientPassword)
+
+	resp = get(t, clientHTTP, env.server.URL, "/tasker/pallets/sku-view?project_scope=all")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected all-scope sku view 200, got %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read all-scope sku view body: %v", err)
+	}
+	_ = resp.Body.Close()
+	page := string(body)
+	if !strings.Contains(page, "SKU-SCOPE-A") || !strings.Contains(page, "SKU-SCOPE-B") {
+		t.Fatalf("expected all-scope page to include both project SKUs")
+	}
+	if !strings.Contains(page, "Select Project") {
+		t.Fatalf("expected all-scope page to disable detail links until a project is selected")
+	}
+
+	resp = get(t, clientHTTP, env.server.URL, "/tasker/pallets/sku-view/detail?project_scope=all")
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected all-scope detail request 400, got %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+
+	resp = get(t, clientHTTP, env.server.URL, "/tasker/pallets/sku-view?project_scope="+strconv.FormatInt(project2ID, 10))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected project-specific sku view 200, got %d", resp.StatusCode)
+	}
+	body, err = io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read project-specific sku view body: %v", err)
+	}
+	_ = resp.Body.Close()
+	page = string(body)
+	if !strings.Contains(page, "SKU-SCOPE-B") {
+		t.Fatalf("expected project-specific page to include project 2 sku")
+	}
+	if strings.Contains(page, "SKU-SCOPE-A") {
+		t.Fatalf("project-specific page should not include project 1 sku")
+	}
+
+	resp = get(t, clientHTTP, env.server.URL, "/tasker/pallets/sku-view/detail?project_scope="+strconv.FormatInt(project2ID, 10)+"&sku=SKU-SCOPE-B&uom=&batch=SB&expiry=2029-02-01")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected project-specific detail page 200, got %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+
+	resp = get(t, clientHTTP, env.server.URL, "/tasker/pallets/sku-view/export-summary.csv?project_scope=all")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected all-scope summary export 200, got %d", resp.StatusCode)
+	}
+	if !strings.Contains(resp.Header.Get("Content-Disposition"), "assigned-projects") {
+		t.Fatalf("expected summary export filename to include assigned-projects, got %s", resp.Header.Get("Content-Disposition"))
+	}
+	body, err = io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read all-scope summary export body: %v", err)
+	}
+	_ = resp.Body.Close()
+	csvText := string(body)
+	if !strings.Contains(csvText, "SKU-SCOPE-A") || !strings.Contains(csvText, "SKU-SCOPE-B") {
+		t.Fatalf("expected all-scope summary export to include both project SKUs")
+	}
+
+	resp = get(t, clientHTTP, env.server.URL, "/tasker/pallets/sku-view/export-detail.csv?project_scope=all")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected all-scope detail export 200, got %d", resp.StatusCode)
+	}
+	if !strings.Contains(resp.Header.Get("Content-Disposition"), "assigned-projects") {
+		t.Fatalf("expected detail export filename to include assigned-projects, got %s", resp.Header.Get("Content-Disposition"))
+	}
+	body, err = io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read all-scope detail export body: %v", err)
+	}
+	_ = resp.Body.Close()
+	csvText = string(body)
+	if !strings.Contains(csvText, "SKU-SCOPE-A") || !strings.Contains(csvText, "SKU-SCOPE-B") {
+		t.Fatalf("expected all-scope detail export to include both project SKUs")
 	}
 }
 

@@ -68,9 +68,44 @@ func LoadSKUSummary(ctx context.Context, db *sqlite.DB, projectID int64, filter 
 		if err := tx.NewRaw(`SELECT name, client_name, status FROM projects WHERE id = ?`, projectID).Scan(ctx, &data.ProjectName, &data.ProjectClientName, &data.ProjectStatus); err != nil {
 			return err
 		}
+		rows, err := loadSKUSummaryRowsByProjectIDs(ctx, tx, []int64{projectID}, data.Filter)
+		if err != nil {
+			return err
+		}
+		data.Rows = rows
+		applySummaryTotals(&data)
+		return nil
+	})
+	return data, err
+}
 
-		whereExtra := skuFilterWhereClause(data.Filter)
-		q := `
+func LoadSKUSummaryByProjectIDs(ctx context.Context, db *sqlite.DB, projectIDs []int64, filter string) (SKUSummaryPageData, error) {
+	data := SKUSummaryPageData{
+		Filter:       normalizeSKUFilter(filter),
+		ProjectScope: "all",
+		ProjectName:  "All assigned projects",
+		Rows:         make([]SKUSummaryRow, 0),
+	}
+	filtered := uniquePositiveIDs(projectIDs)
+	if len(filtered) == 0 {
+		return data, nil
+	}
+
+	err := db.WithReadTx(ctx, func(ctx context.Context, tx bun.Tx) error {
+		rows, err := loadSKUSummaryRowsByProjectIDs(ctx, tx, filtered, data.Filter)
+		if err != nil {
+			return err
+		}
+		data.Rows = rows
+		applySummaryTotals(&data)
+		return nil
+	})
+	return data, err
+}
+
+func loadSKUSummaryRowsByProjectIDs(ctx context.Context, tx bun.Tx, projectIDs []int64, filter string) ([]SKUSummaryRow, error) {
+	whereExtra := skuFilterWhereClause(filter)
+	q := `
 SELECT
 	pr.sku,
 	MAX(COALESCE(pr.description, '')) AS description,
@@ -97,52 +132,77 @@ SELECT
 		ELSE 0
 	END) AS has_photos
 FROM pallet_receipts pr
-WHERE pr.project_id = ?` + whereExtra + `
+WHERE pr.project_id IN (?)` + whereExtra + `
 GROUP BY pr.sku, COALESCE(pr.uom, ''), COALESCE(pr.batch_number, ''), COALESCE(date(pr.expiry_date), '')
 ORDER BY pr.sku COLLATE NOCASE ASC, COALESCE(date(pr.expiry_date), '') ASC, COALESCE(pr.batch_number, '') ASC`
 
-		rows := make([]struct {
-			SKU               string `bun:"sku"`
-			Description       string `bun:"description"`
-			UOM               string `bun:"uom"`
-			BatchNumber       string `bun:"batch_number"`
-			ExpiryDateUK      string `bun:"expiry_date_uk"`
-			ExpiryDateISO     string `bun:"expiry_date_iso"`
-			IsExpired         int64  `bun:"is_expired"`
-			TotalQty          int64  `bun:"total_qty"`
-			SuccessQty        int64  `bun:"success_qty"`
-			UnknownQty        int64  `bun:"unknown_qty"`
-			DamagedQty        int64  `bun:"damaged_qty"`
-			HasComments       int64  `bun:"has_comments"`
-			HasClientComments int64  `bun:"has_client_comments"`
-			HasPhotos         int64  `bun:"has_photos"`
-		}, 0)
-		if err := tx.NewRaw(q, projectID).Scan(ctx, &rows); err != nil {
-			return err
-		}
+	rawRows := make([]struct {
+		SKU               string `bun:"sku"`
+		Description       string `bun:"description"`
+		UOM               string `bun:"uom"`
+		BatchNumber       string `bun:"batch_number"`
+		ExpiryDateUK      string `bun:"expiry_date_uk"`
+		ExpiryDateISO     string `bun:"expiry_date_iso"`
+		IsExpired         int64  `bun:"is_expired"`
+		TotalQty          int64  `bun:"total_qty"`
+		SuccessQty        int64  `bun:"success_qty"`
+		UnknownQty        int64  `bun:"unknown_qty"`
+		DamagedQty        int64  `bun:"damaged_qty"`
+		HasComments       int64  `bun:"has_comments"`
+		HasClientComments int64  `bun:"has_client_comments"`
+		HasPhotos         int64  `bun:"has_photos"`
+	}, 0)
+	if err := tx.NewRaw(q, bun.In(projectIDs)).Scan(ctx, &rawRows); err != nil {
+		return nil, err
+	}
+	rows := make([]SKUSummaryRow, 0, len(rawRows))
+	for _, row := range rawRows {
+		rows = append(rows, SKUSummaryRow{
+			SKU:               row.SKU,
+			Description:       row.Description,
+			UOM:               row.UOM,
+			BatchNumber:       row.BatchNumber,
+			ExpiryDateUK:      row.ExpiryDateUK,
+			ExpiryDateISO:     row.ExpiryDateISO,
+			IsExpired:         row.IsExpired > 0,
+			TotalQty:          row.TotalQty,
+			SuccessQty:        row.SuccessQty,
+			UnknownQty:        row.UnknownQty,
+			DamagedQty:        row.DamagedQty,
+			HasComments:       row.HasComments > 0,
+			HasClientComments: row.HasClientComments > 0,
+			HasPhotos:         row.HasPhotos > 0,
+		})
+	}
+	return rows, nil
+}
 
-		for _, row := range rows {
-			data.Rows = append(data.Rows, SKUSummaryRow{
-				SKU:               row.SKU,
-				Description:       row.Description,
-				UOM:               row.UOM,
-				BatchNumber:       row.BatchNumber,
-				ExpiryDateUK:      row.ExpiryDateUK,
-				ExpiryDateISO:     row.ExpiryDateISO,
-				IsExpired:         row.IsExpired > 0,
-				TotalQty:          row.TotalQty,
-				SuccessQty:        row.SuccessQty,
-				UnknownQty:        row.UnknownQty,
-				DamagedQty:        row.DamagedQty,
-				HasComments:       row.HasComments > 0,
-				HasClientComments: row.HasClientComments > 0,
-				HasPhotos:         row.HasPhotos > 0,
-			})
-		}
+func applySummaryTotals(data *SKUSummaryPageData) {
+	if data == nil {
+		return
+	}
+	for _, row := range data.Rows {
+		data.TotalQtySum += row.TotalQty
+		data.SuccessQtySum += row.SuccessQty
+		data.UnknownQtySum += row.UnknownQty
+		data.DamagedQtySum += row.DamagedQty
+	}
+}
 
-		return nil
-	})
-	return data, err
+func uniquePositiveIDs(ids []int64) []int64 {
+	seen := make(map[int64]struct{}, len(ids))
+	out := make([]int64, 0, len(ids))
+	for _, id := range ids {
+		if id <= 0 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out
 }
 
 func LoadSKUDetail(ctx context.Context, db *sqlite.DB, projectID int64, sku, uom, batch, expiryISO, filter string) (SKUDetailedPageData, error) {
@@ -440,8 +500,20 @@ type SKUDetailedExportRow struct {
 }
 
 func LoadSKUDetailedExportRows(ctx context.Context, db *sqlite.DB, projectID int64, filter string) ([]SKUDetailedExportRow, error) {
+	return loadSKUDetailedExportRowsByProjectIDs(ctx, db, []int64{projectID}, filter)
+}
+
+func LoadSKUDetailedExportRowsByProjectIDs(ctx context.Context, db *sqlite.DB, projectIDs []int64, filter string) ([]SKUDetailedExportRow, error) {
+	return loadSKUDetailedExportRowsByProjectIDs(ctx, db, projectIDs, filter)
+}
+
+func loadSKUDetailedExportRowsByProjectIDs(ctx context.Context, db *sqlite.DB, projectIDs []int64, filter string) ([]SKUDetailedExportRow, error) {
+	projectIDs = uniquePositiveIDs(projectIDs)
 	filter = normalizeSKUFilter(filter)
 	rows := make([]SKUDetailedExportRow, 0)
+	if len(projectIDs) == 0 {
+		return rows, nil
+	}
 	err := db.WithReadTx(ctx, func(ctx context.Context, tx bun.Tx) error {
 		whereExtra := skuFilterWhereClause(filter)
 		q := `
@@ -473,7 +545,7 @@ SELECT
 	COALESCE(u.username, '') AS scanned_by
 FROM pallet_receipts pr
 LEFT JOIN users u ON u.id = pr.scanned_by_user_id
-WHERE pr.project_id = ?` + whereExtra + `
+WHERE pr.project_id IN (?)` + whereExtra + `
 ORDER BY pr.sku COLLATE NOCASE ASC, COALESCE(date(pr.expiry_date), '') ASC, COALESCE(pr.batch_number, '') ASC, pr.pallet_id ASC, pr.id ASC`
 
 		rawRows := make([]struct {
@@ -496,7 +568,7 @@ ORDER BY pr.sku COLLATE NOCASE ASC, COALESCE(date(pr.expiry_date), '') ASC, COAL
 			HasPhotos         int64  `bun:"has_photos"`
 			ScannedBy         string `bun:"scanned_by"`
 		}, 0)
-		if err := tx.NewRaw(q, projectID).Scan(ctx, &rawRows); err != nil {
+		if err := tx.NewRaw(q, bun.In(projectIDs)).Scan(ctx, &rawRows); err != nil {
 			return err
 		}
 		for _, row := range rawRows {

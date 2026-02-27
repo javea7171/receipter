@@ -4,16 +4,24 @@ import (
 	"fmt"
 	"net/url"
 	sharedhtml "receipter/frontend/shared/html"
+	"strings"
 )
 
 func skuFilterSelected(current, value string) bool {
 	return current == value
 }
 
-func skuSummaryURL(filter string) string {
+func skuScopeSelected(current, value string) bool {
+	return strings.TrimSpace(current) == strings.TrimSpace(value)
+}
+
+func skuSummaryURL(filter, projectScope string) string {
 	q := url.Values{}
 	if normalizeSKUFilter(filter) != "all" {
 		q.Set("filter", normalizeSKUFilter(filter))
+	}
+	if strings.TrimSpace(projectScope) != "" {
+		q.Set("project_scope", strings.TrimSpace(projectScope))
 	}
 	encoded := q.Encode()
 	if encoded == "" {
@@ -22,10 +30,13 @@ func skuSummaryURL(filter string) string {
 	return "/tasker/pallets/sku-view?" + encoded
 }
 
-func skuSummaryExportURL(filter string) string {
+func skuSummaryExportURL(filter, projectScope string) string {
 	q := url.Values{}
 	if normalizeSKUFilter(filter) != "all" {
 		q.Set("filter", normalizeSKUFilter(filter))
+	}
+	if strings.TrimSpace(projectScope) != "" {
+		q.Set("project_scope", strings.TrimSpace(projectScope))
 	}
 	encoded := q.Encode()
 	if encoded == "" {
@@ -34,10 +45,13 @@ func skuSummaryExportURL(filter string) string {
 	return "/tasker/pallets/sku-view/export-summary.csv?" + encoded
 }
 
-func skuDetailExportURL(filter string) string {
+func skuDetailExportURL(filter, projectScope string) string {
 	q := url.Values{}
 	if normalizeSKUFilter(filter) != "all" {
 		q.Set("filter", normalizeSKUFilter(filter))
+	}
+	if strings.TrimSpace(projectScope) != "" {
+		q.Set("project_scope", strings.TrimSpace(projectScope))
 	}
 	encoded := q.Encode()
 	if encoded == "" {
@@ -46,7 +60,7 @@ func skuDetailExportURL(filter string) string {
 	return "/tasker/pallets/sku-view/export-detail.csv?" + encoded
 }
 
-func skuDetailURL(row SKUSummaryRow, filter string) string {
+func skuDetailURL(row SKUSummaryRow, filter, projectScope string) string {
 	q := url.Values{}
 	q.Set("sku", row.SKU)
 	q.Set("uom", row.UOM)
@@ -54,6 +68,9 @@ func skuDetailURL(row SKUSummaryRow, filter string) string {
 	q.Set("expiry", row.ExpiryDateISO)
 	if normalizeSKUFilter(filter) != "all" {
 		q.Set("filter", normalizeSKUFilter(filter))
+	}
+	if strings.TrimSpace(projectScope) != "" {
+		q.Set("project_scope", strings.TrimSpace(projectScope))
 	}
 	return "/tasker/pallets/sku-view/detail?" + q.Encode()
 }
@@ -83,18 +100,28 @@ templ SKUViewPage(data SKUSummaryPageData) {
 			}
 			<main class="container-shell-wide space-y-4">
 				<div class="page-header">
-					<div>
-						<h1 class="text-xl font-bold sm:text-2xl">SKU View</h1>
-						<p class="text-sm text-base-content/60">Project: { data.ProjectName } ({ data.ProjectClientName })</p>
-						if data.ProjectStatus != "active" {
-							<p class="text-xs text-warning mt-1">Inactive project. View-only access.</p>
-						}
-					</div>
-					<div class="flex flex-wrap items-end gap-2">
-						<form method="get" action="/tasker/pallets/sku-view" class="flex items-end gap-2">
-							<fieldset class="fieldset">
-								<legend class="fieldset-legend text-xs uppercase tracking-wide">Filter</legend>
-								<select class="select select-bordered select-sm" name="filter" onchange="this.form.submit()">
+						<div>
+							<h1 class="text-xl font-bold sm:text-2xl">SKU View</h1>
+							<p class="text-sm text-base-content/60">Project Scope: { data.ProjectName } ({ data.ProjectClientName })</p>
+							if data.ProjectStatus != "active" {
+								<p class="text-xs text-warning mt-1">Some selected projects may be inactive. Read-only rules still apply.</p>
+							}
+						</div>
+						<div class="flex flex-wrap items-end gap-2">
+							<form method="get" action="/tasker/pallets/sku-view" class="flex items-end gap-2">
+								if len(data.ScopeOptions) > 0 {
+									<fieldset class="fieldset">
+										<legend class="fieldset-legend text-xs uppercase tracking-wide">Project Scope</legend>
+										<select class="select select-bordered select-sm" name="project_scope" onchange="this.form.submit()">
+											for _, opt := range data.ScopeOptions {
+												<option value={ opt.Value } selected?={ skuScopeSelected(data.ProjectScope, opt.Value) }>{ opt.Label }</option>
+											}
+										</select>
+									</fieldset>
+								}
+								<fieldset class="fieldset">
+									<legend class="fieldset-legend text-xs uppercase tracking-wide">Filter</legend>
+									<select class="select select-bordered select-sm" name="filter" onchange="this.form.submit()">
 									<option value="all" selected?={ skuFilterSelected(data.Filter, "all") }>All</option>
 									<option value="success" selected?={ skuFilterSelected(data.Filter, "success") }>Success</option>
 									<option value="unknown" selected?={ skuFilterSelected(data.Filter, "unknown") }>Unknown</option>
@@ -105,21 +132,27 @@ templ SKUViewPage(data SKUSummaryPageData) {
 									}
 								</select>
 							</fieldset>
-						</form>
-						if data.CanExport {
-							<a class="btn btn-outline btn-sm" href={ skuSummaryExportURL(data.Filter) }>Export Summary CSV</a>
-							<a class="btn btn-outline btn-sm" href={ skuDetailExportURL(data.Filter) }>Export Detailed CSV</a>
-						}
+							</form>
+							if data.CanExport {
+								<a class="btn btn-outline btn-sm" href={ skuSummaryExportURL(data.Filter, data.ProjectScope) }>Export Summary CSV</a>
+								<a class="btn btn-outline btn-sm" href={ skuDetailExportURL(data.Filter, data.ProjectScope) }>Export Detailed CSV</a>
+							}
 						if !data.IsClient {
 							<a class="btn btn-ghost btn-sm" href="/tasker/pallets/progress">Back</a>
 						}
 					</div>
 				</div>
 
-				<section class="page-card">
-					<div class="page-card-body space-y-3">
-						<h2 class="section-title">Receipted SKUs</h2>
-						if len(data.Rows) == 0 {
+					<section class="page-card">
+						<div class="page-card-body space-y-3">
+							<div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+								<div class="stats bg-base-100 border border-base-300 shadow-sm"><div class="stat px-4 py-3"><div class="stat-title text-xs uppercase tracking-wide">Total Qty</div><div class="stat-value text-2xl">{ data.TotalQtySum }</div></div></div>
+								<div class="stats bg-base-100 border border-base-300 shadow-sm"><div class="stat px-4 py-3"><div class="stat-title text-xs uppercase tracking-wide">Success Qty</div><div class="stat-value text-2xl text-success">{ data.SuccessQtySum }</div></div></div>
+								<div class="stats bg-base-100 border border-base-300 shadow-sm"><div class="stat px-4 py-3"><div class="stat-title text-xs uppercase tracking-wide">Unknown Qty</div><div class="stat-value text-2xl text-warning">{ data.UnknownQtySum }</div></div></div>
+								<div class="stats bg-base-100 border border-base-300 shadow-sm"><div class="stat px-4 py-3"><div class="stat-title text-xs uppercase tracking-wide">Damaged Qty</div><div class="stat-value text-2xl text-error">{ data.DamagedQtySum }</div></div></div>
+							</div>
+							<h2 class="section-title">Receipted SKUs</h2>
+							if len(data.Rows) == 0 {
 							<div role="alert" class="alert alert-info alert-soft">
 								<span>No SKU rows for this filter.</span>
 							</div>
@@ -144,10 +177,16 @@ templ SKUViewPage(data SKUSummaryPageData) {
 											<th></th>
 										</tr>
 									</thead>
-									<tbody>
-										for _, row := range data.Rows {
-											<tr>
-												<td class="font-mono font-semibold"><a class="link link-primary" href={ skuDetailURL(row, data.Filter) }>{ row.SKU }</a></td>
+										<tbody>
+											for _, row := range data.Rows {
+												<tr>
+													<td class="font-mono font-semibold">
+														if data.CanOpenDetail {
+															<a class="link link-primary" href={ skuDetailURL(row, data.Filter, data.ProjectScope) }>{ row.SKU }</a>
+														} else {
+															{ row.SKU }
+														}
+													</td>
 												<td>{ row.Description }</td>
 												<td>{ row.UOM }</td>
 												<td>{ row.BatchNumber }</td>
@@ -184,9 +223,13 @@ templ SKUViewPage(data SKUSummaryPageData) {
 														<span class="text-base-content/30">--</span>
 													}
 												</td>
-												<td>
-													<a class="btn btn-soft btn-info btn-sm" href={ skuDetailURL(row, data.Filter) }>View</a>
-												</td>
+													<td>
+														if data.CanOpenDetail {
+															<a class="btn btn-soft btn-info btn-sm" href={ skuDetailURL(row, data.Filter, data.ProjectScope) }>View</a>
+														} else {
+															<button class="btn btn-soft btn-disabled btn-sm" disabled>Select Project</button>
+														}
+													</td>
 											</tr>
 										}
 									</tbody>
@@ -232,9 +275,13 @@ templ SKUViewPage(data SKUSummaryPageData) {
 												<div class="text-base-content/60">Photo</div>
 												<div>{ fmt.Sprintf("%t", row.HasPhotos) }</div>
 											</div>
-											<div class="card-actions mt-2">
-												<a class="btn btn-soft btn-info btn-sm w-full" href={ skuDetailURL(row, data.Filter) }>View Details</a>
-											</div>
+												<div class="card-actions mt-2">
+													if data.CanOpenDetail {
+														<a class="btn btn-soft btn-info btn-sm w-full" href={ skuDetailURL(row, data.Filter, data.ProjectScope) }>View Details</a>
+													} else {
+														<button class="btn btn-soft btn-disabled btn-sm w-full" disabled>Select Project</button>
+													}
+												</div>
 										</div>
 									</div>
 								}
@@ -280,9 +327,9 @@ templ SKUDetailPage(data SKUDetailedPageData) {
 							<p class="text-sm text-error font-semibold">Expired instance</p>
 						}
 					</div>
-					<div class="flex gap-2">
-						<a class="btn btn-ghost btn-sm" href={ skuSummaryURL(data.Filter) }>Back to SKU View</a>
-					</div>
+						<div class="flex gap-2">
+							<a class="btn btn-ghost btn-sm" href={ skuSummaryURL(data.Filter, data.ProjectScope) }>Back to SKU View</a>
+						</div>
 				</div>
 
 				if data.Error != "" {
@@ -353,9 +400,11 @@ templ SKUDetailPage(data SKUDetailedPageData) {
 									}
 								</div>
 							}
-							if data.CanAddClientComment {
-								<form method="post" action="/tasker/pallets/sku-view/detail/comment" class="space-y-2">
-									<input type="hidden" name="sku" value={ data.Instance.SKU }/>
+								if data.CanAddClientComment {
+									<form method="post" action="/tasker/pallets/sku-view/detail/comment" class="space-y-2">
+										<input type="hidden" name="project_id" value={ fmt.Sprintf("%d", data.ProjectID) }/>
+										<input type="hidden" name="project_scope" value={ data.ProjectScope }/>
+										<input type="hidden" name="sku" value={ data.Instance.SKU }/>
 									<input type="hidden" name="uom" value={ data.Instance.UOM }/>
 									<input type="hidden" name="batch" value={ data.Instance.BatchNumber }/>
 									<input type="hidden" name="expiry" value={ data.Instance.ExpiryDateISO }/>

@@ -55,17 +55,13 @@ func CreateUserCommandHandler(db *sqlite.DB, _ *cache.UserCache) http.HandlerFun
 		username := strings.TrimSpace(r.FormValue("username"))
 		password := strings.TrimSpace(r.FormValue("password"))
 		role := strings.TrimSpace(r.FormValue("role"))
-		var clientProjectID *int64
-		if raw := strings.TrimSpace(r.FormValue("client_project_id")); raw != "" {
-			id, err := strconv.ParseInt(raw, 10, 64)
-			if err != nil || id <= 0 {
-				http.Redirect(w, r, "/tasker/admin/users?error="+url.QueryEscape("invalid client project"), http.StatusSeeOther)
-				return
-			}
-			clientProjectID = &id
+		clientProjectIDs, err := parseClientProjectIDs(r, "client_project_ids")
+		if err != nil {
+			http.Redirect(w, r, "/tasker/admin/users?error="+url.QueryEscape("invalid client project selection"), http.StatusSeeOther)
+			return
 		}
 
-		if err := CreateUser(r.Context(), db, username, password, role, clientProjectID); err != nil {
+		if err := CreateUser(r.Context(), db, username, password, role, clientProjectIDs); err != nil {
 			switch {
 			case errors.Is(err, ErrUsernameRequired),
 				errors.Is(err, ErrPasswordRequired),
@@ -83,4 +79,49 @@ func CreateUserCommandHandler(db *sqlite.DB, _ *cache.UserCache) http.HandlerFun
 
 		http.Redirect(w, r, "/tasker/admin/users?status="+url.QueryEscape("user created"), http.StatusSeeOther)
 	}
+}
+
+func UpdateClientProjectAccessCommandHandler(db *sqlite.DB, _ *cache.UserCache) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := context.GetSessionFromContext(r.Context()); !ok {
+			http.Redirect(w, r, "/login", http.StatusSeeOther)
+			return
+		}
+		if err := r.ParseForm(); err != nil {
+			http.Redirect(w, r, "/tasker/admin/users?error="+url.QueryEscape("invalid form data"), http.StatusSeeOther)
+			return
+		}
+		userID, err := strconv.ParseInt(strings.TrimSpace(r.FormValue("client_user_id")), 10, 64)
+		if err != nil || userID <= 0 {
+			http.Redirect(w, r, "/tasker/admin/users?error="+url.QueryEscape("invalid client user"), http.StatusSeeOther)
+			return
+		}
+		projectIDs, err := parseClientProjectIDs(r, "client_project_ids_update")
+		if err != nil {
+			http.Redirect(w, r, "/tasker/admin/users?error="+url.QueryEscape("invalid client project selection"), http.StatusSeeOther)
+			return
+		}
+		if err := SetClientProjectAccess(r.Context(), db, userID, projectIDs); err != nil {
+			http.Redirect(w, r, "/tasker/admin/users?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+			return
+		}
+		http.Redirect(w, r, "/tasker/admin/users?status="+url.QueryEscape("client project access updated"), http.StatusSeeOther)
+	}
+}
+
+func parseClientProjectIDs(r *http.Request, field string) ([]int64, error) {
+	values := r.Form[field]
+	ids := make([]int64, 0, len(values))
+	for _, raw := range values {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			continue
+		}
+		id, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || id <= 0 {
+			return nil, errors.New("invalid project id")
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
 }

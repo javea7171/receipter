@@ -35,8 +35,8 @@ templ UsersListPage(data PageData) {
 				<section class="page-card">
 					<div class="page-card-body space-y-4">
 						<h2 class="section-title">Create User</h2>
-						<p class="text-sm text-base-content/60">Create a new scanner, admin, or client account.</p>
-						<form method="post" action="/tasker/admin/users" class="grid gap-4 sm:grid-cols-4">
+							<p class="text-sm text-base-content/60">Create a new scanner, admin, or client account.</p>
+							<form method="post" action="/tasker/admin/users" class="grid gap-4 sm:grid-cols-4">
 							<fieldset class="fieldset">
 								<legend class="fieldset-legend">Username</legend>
 								<input class="input input-bordered" name="username" required autocomplete="off"/>
@@ -53,16 +53,15 @@ templ UsersListPage(data PageData) {
 									<option value="client">client</option>
 								</select>
 							</fieldset>
-							<fieldset class="fieldset">
-								<legend class="fieldset-legend">Client Project</legend>
-								<select class="select select-bordered" name="client_project_id">
-									<option value="">None</option>
-									for _, p := range data.Projects {
-										<option value={ fmt.Sprintf("%d", p.ID) }>{ p.Label }</option>
-									}
-								</select>
-								<div class="label"><span class="label-text-alt">Required when role is client.</span></div>
-							</fieldset>
+								<fieldset class="fieldset">
+									<legend class="fieldset-legend">Client Projects</legend>
+									<select class="select select-bordered h-32" name="client_project_ids" multiple>
+										for _, p := range data.Projects {
+											<option value={ fmt.Sprintf("%d", p.ID) }>{ p.Label }</option>
+										}
+									</select>
+									<div class="label"><span class="label-text-alt">Required when role is client. Use Ctrl/Cmd to select multiple.</span></div>
+								</fieldset>
 							<div class="sm:col-span-4 text-sm text-base-content/60">Password policy: at least 5 characters.</div>
 							<div class="sm:col-span-4">
 								<button class="btn btn-primary" type="submit">Create User</button>
@@ -76,14 +75,14 @@ templ UsersListPage(data PageData) {
 						<!-- Desktop table -->
 						<div class="hidden lg:block overflow-x-auto">
 							<table class="table table-zebra">
-								<thead><tr><th>ID</th><th>Username</th><th>Role</th><th>Client Project</th></tr></thead>
+										<thead><tr><th>ID</th><th>Username</th><th>Role</th><th>Client Projects</th></tr></thead>
 								<tbody>
 									for _, user := range data.Users {
 										<tr>
 											<td class="font-mono">{ user.ID }</td>
 											<td class="font-medium">{ user.Username }</td>
 											<td><span class="badge badge-soft badge-primary">{ user.Role }</span></td>
-											<td>{ user.ClientProjectName }</td>
+												<td>{ user.ClientProjects }</td>
 										</tr>
 									}
 								</tbody>
@@ -98,17 +97,46 @@ templ UsersListPage(data PageData) {
 											<span class="font-medium text-base">{ user.Username }</span>
 											<span class="badge badge-soft badge-primary">{ user.Role }</span>
 										</div>
-										if user.ClientProjectName != "" {
-											<div class="text-sm text-base-content/70">Client project: { user.ClientProjectName }</div>
-										}
+											if user.ClientProjects != "" {
+												<div class="text-sm text-base-content/70">Client projects: { user.ClientProjects }</div>
+											}
 										<span class="text-sm text-base-content/50 font-mono">ID: { user.ID }</span>
 									</div>
 								</div>
 							}
 						</div>
 					</div>
-				</section>
-			</main>
+					</section>
+					<section class="page-card">
+						<div class="page-card-body space-y-4">
+							<h2 class="section-title">Update Client Project Access</h2>
+							<p class="text-sm text-base-content/60">Assign additional projects to existing client logins by updating their project access set.</p>
+							<form method="post" action="/tasker/admin/users/client-project-access" class="grid gap-4 md:grid-cols-2">
+								<fieldset class="fieldset">
+									<legend class="fieldset-legend">Client User</legend>
+									<select class="select select-bordered" name="client_user_id" required>
+										<option value="">Select client user</option>
+										for _, u := range data.ClientUsers {
+											<option value={ fmt.Sprintf("%d", u.ID) }>{ u.Label }</option>
+										}
+									</select>
+								</fieldset>
+								<fieldset class="fieldset">
+									<legend class="fieldset-legend">Client Projects</legend>
+									<select class="select select-bordered h-40" name="client_project_ids_update" multiple required>
+										for _, p := range data.Projects {
+											<option value={ fmt.Sprintf("%d", p.ID) }>{ p.Label }</option>
+										}
+									</select>
+									<div class="label"><span class="label-text-alt">Use Ctrl/Cmd to select multiple projects.</span></div>
+								</fieldset>
+								<div class="md:col-span-2">
+									<button class="btn btn-primary" type="submit">Update Client Access</button>
+								</div>
+							</form>
+						</div>
+					</section>
+				</main>
 			@sharedhtml.Dock(sharedhtml.NavNone)
 			@templ.Raw(sharedhtml.CSRFFormScript())
 		</body>

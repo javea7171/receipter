@@ -44,6 +44,8 @@ func (s *Server) RegisterAdminRoutes(r chi.Router) chi.Router {
 	r.Get("/admin/users", adminusers.UsersPageQueryHandler(s.DB, s.UserCache))
 	s.Rbac.Add(rbac.RoleAdmin, "ADMIN_USERS_CREATE", http.MethodPost, "/tasker/admin/users")
 	r.Post("/admin/users", adminusers.CreateUserCommandHandler(s.DB, s.UserCache))
+	s.Rbac.Add(rbac.RoleAdmin, "ADMIN_USERS_CLIENT_PROJECTS_EDIT", http.MethodPost, "/tasker/admin/users/client-project-access")
+	r.Post("/admin/users/client-project-access", adminusers.UpdateClientProjectAccessCommandHandler(s.DB, s.UserCache))
 	return r
 }
 

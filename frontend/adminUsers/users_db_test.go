@@ -121,7 +121,7 @@ VALUES (1, 'Client Project', 'for client user test', DATE('now'), 'Test Client',
 	}
 
 	projectID := int64(1)
-	if err := CreateUser(context.Background(), db, "client1", "Client123!Pass", "client", &projectID); err != nil {
+	if err := CreateUser(context.Background(), db, "client1", "Client123!Pass", "client", []int64{projectID}); err != nil {
 		t.Fatalf("create client user: %v", err)
 	}
 
@@ -138,5 +138,68 @@ VALUES (1, 'Client Project', 'for client user test', DATE('now'), 'Test Client',
 	}
 	if storedProjectID != projectID {
 		t.Fatalf("expected client_project_id=%d, got %d", projectID, storedProjectID)
+	}
+
+	var accessCount int
+	err = db.WithReadTx(context.Background(), func(ctx context.Context, tx bun.Tx) error {
+		return tx.NewRaw(`SELECT COUNT(1) FROM client_project_access WHERE user_id = (SELECT id FROM users WHERE username = ?) AND project_id = ?`, "client1", projectID).Scan(ctx, &accessCount)
+	})
+	if err != nil {
+		t.Fatalf("load client project access: %v", err)
+	}
+	if accessCount != 1 {
+		t.Fatalf("expected one access row, got %d", accessCount)
+	}
+}
+
+func TestSetClientProjectAccess_ReplacesAssignments(t *testing.T) {
+	db := openAdminUsersTestDB(t)
+
+	err := db.WithWriteTx(context.Background(), func(ctx context.Context, tx bun.Tx) error {
+		_, err := tx.ExecContext(ctx, `
+INSERT INTO projects (id, name, description, project_date, client_name, code, status, created_at, updated_at)
+VALUES
+  (1, 'Client Project 1', 'for client user test', DATE('now'), 'Test Client', 'client-project-1', 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (2, 'Client Project 2', 'for client user test', DATE('now'), 'Test Client', 'client-project-2', 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  (3, 'Client Project 3', 'for client user test', DATE('now'), 'Test Client', 'client-project-3', 'inactive', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+`)
+		return err
+	})
+	if err != nil {
+		t.Fatalf("seed projects: %v", err)
+	}
+
+	if err := CreateUser(context.Background(), db, "client2", "Client123!Pass", "client", []int64{1}); err != nil {
+		t.Fatalf("create client user: %v", err)
+	}
+
+	var userID int64
+	err = db.WithReadTx(context.Background(), func(ctx context.Context, tx bun.Tx) error {
+		return tx.NewRaw(`SELECT id FROM users WHERE username = ?`, "client2").Scan(ctx, &userID)
+	})
+	if err != nil {
+		t.Fatalf("load client id: %v", err)
+	}
+
+	if err := SetClientProjectAccess(context.Background(), db, userID, []int64{2, 3}); err != nil {
+		t.Fatalf("update client access: %v", err)
+	}
+
+	var storedProjectID int64
+	access := make([]int64, 0)
+	err = db.WithReadTx(context.Background(), func(ctx context.Context, tx bun.Tx) error {
+		if err := tx.NewRaw(`SELECT client_project_id FROM users WHERE id = ?`, userID).Scan(ctx, &storedProjectID); err != nil {
+			return err
+		}
+		return tx.NewRaw(`SELECT project_id FROM client_project_access WHERE user_id = ? ORDER BY project_id ASC`, userID).Scan(ctx, &access)
+	})
+	if err != nil {
+		t.Fatalf("load updated access: %v", err)
+	}
+	if storedProjectID != 2 {
+		t.Fatalf("expected client_project_id updated to 2, got %d", storedProjectID)
+	}
+	if len(access) != 2 || access[0] != 2 || access[1] != 3 {
+		t.Fatalf("expected access [2 3], got %+v", access)
 	}
 }

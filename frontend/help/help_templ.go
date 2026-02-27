@@ -61,7 +61,7 @@ func HelpPage(data PageData) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		} else if data.IsClient {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "<h1 class=\"text-2xl font-bold\">Help For Clients</h1><p class=\"text-base-content/70\">Your access is read-focused for your assigned project.</p><ol class=\"list-decimal pl-6 space-y-2 text-sm sm:text-base\"><li>After login, go to SKU View for your assigned project.</li><li>Use filters to view all, success, unknown, damaged, expired, or client-commented SKU summaries.</li><li>Open View on a SKU to inspect pallet-level breakdown, photos, and previous comments.</li><li>Add comments against the exact pallet instance so each observation is traceable.</li><li>You cannot create projects, import stock, generate pallets, or receipt/edit pallet lines.</li></ol>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "<h1 class=\"text-2xl font-bold\">Help For Clients</h1><p class=\"text-base-content/70\">Your access is read-focused for your assigned projects.</p><ol class=\"list-decimal pl-6 space-y-2 text-sm sm:text-base\"><li>After login, go to SKU View and choose either All Assigned Projects or a specific project scope.</li><li>Use filters to view all, success, unknown, damaged, expired, or client-commented SKU summaries.</li><li>Open View on a SKU to inspect pallet-level breakdown, photos, and previous comments.</li><li>Add comments against the exact pallet instance so each observation is traceable.</li><li>You cannot create projects, import stock, generate pallets, or receipt/edit pallet lines.</li></ol>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

@@ -41,15 +41,16 @@ func CreateLoginHandler(db *sqlite.DB, sessionCache *cache.UserSessionCache, use
 
 		var activeProjectID *int64
 		if user.Role == rbac.RoleClient {
-			if user.ClientProjectID == nil || *user.ClientProjectID <= 0 {
-				http.Redirect(w, r, "/login?error="+url.QueryEscape("client user has no assigned project"), http.StatusSeeOther)
+			var err error
+			activeProjectID, err = projectinfra.ResolveClientActiveProjectID(r.Context(), db, user.ID, nil)
+			if err != nil {
+				http.Redirect(w, r, "/login?error="+url.QueryEscape("failed to resolve client project access"), http.StatusSeeOther)
 				return
 			}
-			if _, err := projectinfra.LoadByID(r.Context(), db, *user.ClientProjectID); err != nil {
-				http.Redirect(w, r, "/login?error="+url.QueryEscape("assigned client project not found"), http.StatusSeeOther)
+			if activeProjectID == nil || *activeProjectID <= 0 {
+				http.Redirect(w, r, "/login?error="+url.QueryEscape("client user has no assigned projects"), http.StatusSeeOther)
 				return
 			}
-			activeProjectID = user.ClientProjectID
 		} else {
 			var err error
 			activeProjectID, err = projectinfra.ResolveSessionActiveProjectID(r.Context(), db, nil)

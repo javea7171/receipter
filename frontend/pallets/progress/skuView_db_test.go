@@ -306,3 +306,51 @@ func TestLoadSKUDetailedExportRows(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadSKUSummaryByProjectIDs_AggregatesAcrossProjects(t *testing.T) {
+	db := openProgressTestDB(t)
+	seedSKUViewData(t, db)
+
+	err := db.WithWriteTx(context.Background(), func(ctx context.Context, tx bun.Tx) error {
+		if _, err := tx.ExecContext(ctx, `
+INSERT INTO projects (id, name, description, project_date, client_name, code, status, created_at, updated_at)
+VALUES (2, 'Second Project', 'for cross-project summary', DATE('now'), 'Second Client', 'second-project', 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+`); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO pallets (id, project_id, status, created_at) VALUES (3, 2, 'open', CURRENT_TIMESTAMP)`); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `
+INSERT INTO pallet_receipts (
+	id, project_id, pallet_id, sku, description, uom, comment, scanned_by_user_id, qty, case_size, unknown_sku, damaged, damaged_qty, batch_number, expiry_date, created_at, updated_at
+) VALUES
+	(200, 2, 3, 'SKU-A', 'Alpha', 'unit', 'project2 line', 1, 5, 1, 0, 0, 0, 'B1', '2099-01-01', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+	(201, 2, 3, 'SKU-B', 'Beta', 'unit', '', 1, 7, 1, 0, 0, 0, 'B2', '2099-01-01', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+`); err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("seed second project data: %v", err)
+	}
+
+	data, err := LoadSKUSummaryByProjectIDs(context.Background(), db, []int64{1, 2}, "all")
+	if err != nil {
+		t.Fatalf("load cross-project summary: %v", err)
+	}
+	if len(data.Rows) != 4 {
+		t.Fatalf("expected 4 aggregated rows across projects, got %d", len(data.Rows))
+	}
+	skuA, ok := findSKURow(data.Rows, "SKU-A")
+	if !ok {
+		t.Fatalf("expected SKU-A row")
+	}
+	if skuA.TotalQty != 9 || skuA.SuccessQty != 8 || skuA.DamagedQty != 1 {
+		t.Fatalf("unexpected SKU-A aggregate across projects: %+v", skuA)
+	}
+	if data.TotalQtySum != 22 {
+		t.Fatalf("expected total qty sum 22, got %d", data.TotalQtySum)
+	}
+}
