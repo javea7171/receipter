@@ -40,7 +40,7 @@ func progressRefreshURL(statusFilter string) string {
 }
 
 func progressAutoRefreshExpr(statusFilter string) string {
-	return fmt.Sprintf("(function(){var m=document.getElementById('cancel-pallet-modal');if(!m||!m.open){@get('%s', {openWhenHidden: true})}})()", progressRefreshURL(statusFilter))
+	return fmt.Sprintf("(function(){var m=document.getElementById('cancel-pallet-modal');var hasSelection=(window.__bulkTemplateSelectionCount||0)>0;if((!m||!m.open)&&!hasSelection){@get('%s', {openWhenHidden: true})}})()", progressRefreshURL(statusFilter))
 }
 
 templ PalletProgress(summary Summary) {
@@ -153,6 +153,31 @@ templ PalletProgressFragment(summary Summary) {
 			<!-- Pallet list -->
 			<section class="page-card">
 				<div class="page-card-body space-y-3">
+					if summary.CanPrintClosedLabel {
+						<div class="rounded-box border border-base-300 bg-base-100 p-3">
+							<div class="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+								<div class="space-y-1">
+									<p class="text-sm font-semibold">Bulk Upload Templates</p>
+									<p class="text-xs text-base-content/70">Select labelled pallets to generate one combined upload file.</p>
+									<div class="flex flex-wrap items-center gap-2">
+										<button class="btn btn-ghost btn-sm" type="button" id="bulk-select-all-labelled">Select All Labelled</button>
+										<button class="btn btn-ghost btn-sm" type="button" id="bulk-clear-selection">Clear</button>
+										<span class="badge badge-outline" id="bulk-selection-count">0 selected</span>
+									</div>
+								</div>
+								<div class="flex flex-wrap items-center gap-2">
+									<form method="get" action="/tasker/pallets/item-upload.csv" id="bulk-item-upload-form">
+										<input type="hidden" id="bulk-item-upload-ids" name="pallet_ids" value=""/>
+										<button class="btn btn-soft btn-secondary btn-sm" type="submit" id="bulk-item-upload-btn" disabled>Download Item Upload</button>
+									</form>
+									<form method="get" action="/tasker/pallets/receipt-upload.csv" id="bulk-receipt-upload-form">
+										<input type="hidden" id="bulk-receipt-upload-ids" name="pallet_ids" value=""/>
+										<button class="btn btn-soft btn-secondary btn-sm" type="submit" id="bulk-receipt-upload-btn" disabled>Download Receipt Upload</button>
+									</form>
+								</div>
+							</div>
+						</div>
+					}
 					<h2 class="section-title">All Pallets</h2>
 
 					<!-- Desktop table -->
@@ -160,6 +185,7 @@ templ PalletProgressFragment(summary Summary) {
 						<table class="table table-zebra">
 							<thead>
 								<tr>
+									<th>Select</th>
 									<th>Pallet</th>
 									<th>Status</th>
 									<th>Lines</th>
@@ -176,6 +202,11 @@ templ PalletProgressFragment(summary Summary) {
 							<tbody>
 								for _, p := range summary.Pallets {
 									<tr>
+										<td>
+											if p.Status == "labelled" {
+												<input class="checkbox checkbox-sm bulk-pallet-select" type="checkbox" value={ fmt.Sprintf("%d", p.ID) } data-pallet-id={ fmt.Sprintf("%d", p.ID) } aria-label={ fmt.Sprintf("Select pallet P%08d", p.ID) }/>
+											}
+										</td>
 										<td class="font-mono font-semibold">{ fmt.Sprintf("P%08d", p.ID) }</td>
 										<td><span class={ statusBadge(p.Status) }>{ p.Status }</span></td>
 										<td>{ p.LineCount }</td>
@@ -230,9 +261,14 @@ templ PalletProgressFragment(summary Summary) {
 						for _, p := range summary.Pallets {
 							<div class="card card-border bg-base-100 shadow-sm">
 								<div class="card-body p-4 gap-3">
-									<div class="flex items-center justify-between">
+									<div class="flex items-center justify-between gap-2">
 										<span class="font-mono text-lg font-bold">{ fmt.Sprintf("P%08d", p.ID) }</span>
-										<span class={ statusBadge(p.Status) }>{ p.Status }</span>
+										<div class="flex items-center gap-2">
+											if p.Status == "labelled" {
+												<input class="checkbox checkbox-sm bulk-pallet-select" type="checkbox" value={ fmt.Sprintf("%d", p.ID) } data-pallet-id={ fmt.Sprintf("%d", p.ID) } aria-label={ fmt.Sprintf("Select pallet P%08d", p.ID) }/>
+											}
+											<span class={ statusBadge(p.Status) }>{ p.Status }</span>
+										</div>
 									</div>
 									<div class="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
 										<div class="text-base-content/60">Lines</div>
@@ -312,20 +348,99 @@ templ PalletProgressFragment(summary Summary) {
 						};
 					}
 
-		window.openCancelPalletModal = function(palletID) {
-			const r = refs();
-			if (!r.modal || !r.form) return;
-			r.form.action = '/tasker/api/pallets/' + palletID + '/cancel';
-			if (r.label) {
-				r.label.textContent = 'P' + String(palletID).padStart(8, '0');
-			}
-			r.modal.showModal();
-		};
+					function selectedPalletIDs() {
+						const selected = [];
+						const seen = new Set();
+						document.querySelectorAll('.bulk-pallet-select:checked').forEach(function(input) {
+							const raw = (input.getAttribute('data-pallet-id') || input.value || '').trim();
+							if (!raw || seen.has(raw)) return;
+							const id = parseInt(raw, 10);
+							if (!id || id < 1) return;
+							seen.add(raw);
+							selected.push(id);
+						});
+						selected.sort(function(a, b) { return a - b; });
+						return selected;
+					}
+
+					function syncPalletCheckboxes(palletID, checked) {
+						document.querySelectorAll('.bulk-pallet-select[data-pallet-id="' + palletID + '"]').forEach(function(input) {
+							input.checked = checked;
+						});
+					}
+
+					function updateBulkTemplateSelectionState() {
+						const ids = selectedPalletIDs();
+						const joined = ids.join(',');
+						const hasSelection = ids.length > 0;
+
+						const itemInput = document.getElementById('bulk-item-upload-ids');
+						if (itemInput) itemInput.value = joined;
+						const receiptInput = document.getElementById('bulk-receipt-upload-ids');
+						if (receiptInput) receiptInput.value = joined;
+
+						const itemBtn = document.getElementById('bulk-item-upload-btn');
+						if (itemBtn) itemBtn.disabled = !hasSelection;
+						const receiptBtn = document.getElementById('bulk-receipt-upload-btn');
+						if (receiptBtn) receiptBtn.disabled = !hasSelection;
+
+						const count = document.getElementById('bulk-selection-count');
+						if (count) {
+							count.textContent = ids.length + (ids.length === 1 ? ' pallet selected' : ' pallets selected');
+						}
+
+						window.__bulkTemplateSelectionCount = ids.length;
+						return ids;
+					}
+
+					window.openCancelPalletModal = function(palletID) {
+						const r = refs();
+						if (!r.modal || !r.form) return;
+						r.form.action = '/tasker/api/pallets/' + palletID + '/cancel';
+						if (r.label) {
+							r.label.textContent = 'P' + String(palletID).padStart(8, '0');
+						}
+						r.modal.showModal();
+					};
 
 					window.closeCancelPalletModal = function() {
 						const r = refs();
 						if (r.modal && r.modal.open) r.modal.close();
 					};
+
+					if (!window.__bulkTemplateSelectionBound) {
+						document.addEventListener('change', function(event) {
+							const checkbox = event.target.closest('.bulk-pallet-select');
+							if (!checkbox) return;
+							const raw = (checkbox.getAttribute('data-pallet-id') || checkbox.value || '').trim();
+							const palletID = parseInt(raw, 10);
+							if (!palletID || palletID < 1) return;
+							syncPalletCheckboxes(String(palletID), checkbox.checked);
+							updateBulkTemplateSelectionState();
+						});
+
+						document.addEventListener('click', function(event) {
+							const selectAllBtn = event.target.closest('#bulk-select-all-labelled');
+							if (selectAllBtn) {
+								event.preventDefault();
+								document.querySelectorAll('.bulk-pallet-select').forEach(function(input) {
+									input.checked = true;
+								});
+								updateBulkTemplateSelectionState();
+								return;
+							}
+
+							const clearBtn = event.target.closest('#bulk-clear-selection');
+							if (clearBtn) {
+								event.preventDefault();
+								document.querySelectorAll('.bulk-pallet-select').forEach(function(input) {
+									input.checked = false;
+								});
+								updateBulkTemplateSelectionState();
+							}
+						});
+						window.__bulkTemplateSelectionBound = true;
+					}
 
 					if (!window.__cancelPalletClickBound) {
 						document.addEventListener('click', function(event) {
@@ -339,6 +454,8 @@ templ PalletProgressFragment(summary Summary) {
 						});
 						window.__cancelPalletClickBound = true;
 					}
+
+					updateBulkTemplateSelectionState();
 				})();
 			</script>
 		</div>

@@ -86,6 +86,14 @@ templ PalletReceiptPage(data PageData) {
 								Print Pallet Label
 							</a>
 						}
+						if data.PalletStatus == "labelled" {
+							<a class="btn btn-soft btn-secondary btn-sm" href={ fmt.Sprintf("/tasker/pallets/%d/item-upload.csv", data.PalletID) }>
+								Download Item Upload
+							</a>
+							<a class="btn btn-soft btn-secondary btn-sm" href={ fmt.Sprintf("/tasker/pallets/%d/receipt-upload.csv", data.PalletID) }>
+								Download Receipt Upload
+							</a>
+						}
 						<a href="/tasker/pallets/progress" class="btn btn-ghost btn-sm">
 							<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="size-4">
 								<path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18"/>

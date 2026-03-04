@@ -24,6 +24,8 @@ import (
 	"receipter/models"
 )
 
+var errInvalidPalletIDs = errors.New("invalid pallet ids")
+
 // ReceiptPageQueryHandler renders the receipt screen for a pallet.
 func ReceiptPageQueryHandler(db *sqlite.DB, _ *cache.UserSessionCache) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -75,6 +77,146 @@ func userHasRole(userRoles []string, role string) bool {
 		}
 	}
 	return false
+}
+
+// ItemUploadCSVTemplateHandler downloads item_upload.csv populated for a labelled pallet.
+func ItemUploadCSVTemplateHandler(db *sqlite.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		palletID, err := parsePalletID(r)
+		if err != nil {
+			http.Error(w, "invalid pallet id", http.StatusBadRequest)
+			return
+		}
+
+		data, err := loadLabelledPalletUploadData(r.Context(), db, palletID)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				http.Error(w, "pallet not found", http.StatusNotFound)
+				return
+			}
+			if errors.Is(err, ErrPalletNotLabelled) {
+				http.Error(w, "pallet must be labelled to download upload templates", http.StatusConflict)
+				return
+			}
+			http.Error(w, "failed to load pallet data", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/csv")
+		w.Header().Set("Content-Disposition", "attachment; filename=item_upload.csv")
+		if err := writeItemUploadCSVForPallet(w, data); err != nil {
+			http.Error(w, "failed to generate csv", http.StatusInternalServerError)
+			return
+		}
+	}
+}
+
+// ReceiptUploadCSVTemplateHandler downloads receipt_upload.csv populated for a labelled pallet.
+func ReceiptUploadCSVTemplateHandler(db *sqlite.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		palletID, err := parsePalletID(r)
+		if err != nil {
+			http.Error(w, "invalid pallet id", http.StatusBadRequest)
+			return
+		}
+
+		data, err := loadLabelledPalletUploadData(r.Context(), db, palletID)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				http.Error(w, "pallet not found", http.StatusNotFound)
+				return
+			}
+			if errors.Is(err, ErrPalletNotLabelled) {
+				http.Error(w, "pallet must be labelled to download upload templates", http.StatusConflict)
+				return
+			}
+			http.Error(w, "failed to load pallet data", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/csv")
+		w.Header().Set("Content-Disposition", "attachment; filename=receipt_upload.csv")
+		if err := writeReceiptUploadCSVForPallet(w, data); err != nil {
+			http.Error(w, "failed to generate csv", http.StatusInternalServerError)
+			return
+		}
+	}
+}
+
+// BulkItemUploadCSVTemplateHandler downloads one item_upload.csv for selected labelled pallets.
+func BulkItemUploadCSVTemplateHandler(db *sqlite.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		session, ok := context.GetSessionFromContext(r.Context())
+		if !ok || session.ActiveProjectID == nil || *session.ActiveProjectID <= 0 {
+			http.Error(w, "no active project selected", http.StatusForbidden)
+			return
+		}
+
+		palletIDs, err := parsePalletIDs(r.URL.Query())
+		if err != nil {
+			http.Error(w, "invalid pallet ids", http.StatusBadRequest)
+			return
+		}
+
+		data, err := loadLabelledPalletUploadDataForPallets(r.Context(), db, *session.ActiveProjectID, palletIDs)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				http.Error(w, "pallet not found", http.StatusNotFound)
+				return
+			}
+			if errors.Is(err, ErrPalletNotLabelled) {
+				http.Error(w, "all selected pallets must be labelled to download upload templates", http.StatusConflict)
+				return
+			}
+			http.Error(w, "failed to load pallet data", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/csv")
+		w.Header().Set("Content-Disposition", "attachment; filename=item_upload.csv")
+		if err := writeItemUploadCSVForPallets(w, data); err != nil {
+			http.Error(w, "failed to generate csv", http.StatusInternalServerError)
+			return
+		}
+	}
+}
+
+// BulkReceiptUploadCSVTemplateHandler downloads one receipt_upload.csv for selected labelled pallets.
+func BulkReceiptUploadCSVTemplateHandler(db *sqlite.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		session, ok := context.GetSessionFromContext(r.Context())
+		if !ok || session.ActiveProjectID == nil || *session.ActiveProjectID <= 0 {
+			http.Error(w, "no active project selected", http.StatusForbidden)
+			return
+		}
+
+		palletIDs, err := parsePalletIDs(r.URL.Query())
+		if err != nil {
+			http.Error(w, "invalid pallet ids", http.StatusBadRequest)
+			return
+		}
+
+		data, err := loadLabelledPalletUploadDataForPallets(r.Context(), db, *session.ActiveProjectID, palletIDs)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				http.Error(w, "pallet not found", http.StatusNotFound)
+				return
+			}
+			if errors.Is(err, ErrPalletNotLabelled) {
+				http.Error(w, "all selected pallets must be labelled to download upload templates", http.StatusConflict)
+				return
+			}
+			http.Error(w, "failed to load pallet data", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/csv")
+		w.Header().Set("Content-Disposition", "attachment; filename=receipt_upload.csv")
+		if err := writeReceiptUploadCSVForPallets(w, data); err != nil {
+			http.Error(w, "failed to generate csv", http.StatusInternalServerError)
+			return
+		}
+	}
 }
 
 // CreateReceiptCommandHandler stores/merges receipt line against pallet.
@@ -457,6 +599,37 @@ func writeStockSuggestionListHTML(w io.Writer, q string, items []models.StockIte
 func parsePalletID(r *http.Request) (int64, error) {
 	idStr := chi.URLParam(r, "id")
 	return strconv.ParseInt(idStr, 10, 64)
+}
+
+func parsePalletIDs(values url.Values) ([]int64, error) {
+	rawValues := values["pallet_ids"]
+	if len(rawValues) == 0 {
+		return nil, errInvalidPalletIDs
+	}
+
+	out := make([]int64, 0, len(rawValues))
+	seen := make(map[int64]struct{}, len(rawValues))
+	for _, raw := range rawValues {
+		for _, part := range strings.Split(raw, ",") {
+			part = strings.TrimSpace(part)
+			if part == "" {
+				continue
+			}
+			id, err := strconv.ParseInt(part, 10, 64)
+			if err != nil || id <= 0 {
+				return nil, errInvalidPalletIDs
+			}
+			if _, ok := seen[id]; ok {
+				continue
+			}
+			seen[id] = struct{}{}
+			out = append(out, id)
+		}
+	}
+	if len(out) == 0 {
+		return nil, errInvalidPalletIDs
+	}
+	return out, nil
 }
 
 func parseReceiptID(r *http.Request) (int64, error) {

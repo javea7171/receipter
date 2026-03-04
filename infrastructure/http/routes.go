@@ -113,6 +113,16 @@ func (s *Server) RegisterPalletRoutes(r chi.Router) {
 
 	s.Rbac.Add(rbac.RoleScanner, "PALLET_RECEIPT_VIEW", http.MethodGet, "/tasker/pallets/*/receipt")
 	r.Get("/pallets/{id}/receipt", palletreceipt.ReceiptPageQueryHandler(s.DB, s.SessionCache))
+	s.Rbac.Add(rbac.RoleAdmin, "PALLET_ITEM_UPLOAD_TEMPLATE_BULK_EXPORT", http.MethodGet, "/tasker/pallets/item-upload.csv")
+	s.Rbac.Add(rbac.RoleScanner, "PALLET_ITEM_UPLOAD_TEMPLATE_BULK_EXPORT", http.MethodGet, "/tasker/pallets/item-upload.csv")
+	r.Get("/pallets/item-upload.csv", palletreceipt.BulkItemUploadCSVTemplateHandler(s.DB))
+	s.Rbac.Add(rbac.RoleAdmin, "PALLET_RECEIPT_UPLOAD_TEMPLATE_BULK_EXPORT", http.MethodGet, "/tasker/pallets/receipt-upload.csv")
+	s.Rbac.Add(rbac.RoleScanner, "PALLET_RECEIPT_UPLOAD_TEMPLATE_BULK_EXPORT", http.MethodGet, "/tasker/pallets/receipt-upload.csv")
+	r.Get("/pallets/receipt-upload.csv", palletreceipt.BulkReceiptUploadCSVTemplateHandler(s.DB))
+	s.Rbac.Add(rbac.RoleScanner, "PALLET_ITEM_UPLOAD_TEMPLATE_EXPORT", http.MethodGet, "/tasker/pallets/*/item-upload.csv")
+	r.Get("/pallets/{id}/item-upload.csv", palletreceipt.ItemUploadCSVTemplateHandler(s.DB))
+	s.Rbac.Add(rbac.RoleScanner, "PALLET_RECEIPT_UPLOAD_TEMPLATE_EXPORT", http.MethodGet, "/tasker/pallets/*/receipt-upload.csv")
+	r.Get("/pallets/{id}/receipt-upload.csv", palletreceipt.ReceiptUploadCSVTemplateHandler(s.DB))
 
 	s.Rbac.Add(rbac.RoleScanner, "PALLET_RECEIPT_CREATE", http.MethodPost, "/tasker/api/pallets/*/receipts")
 	r.Post("/api/pallets/{id}/receipts", palletreceipt.CreateReceiptCommandHandler(s.DB, s.Audit))

@@ -3,6 +3,7 @@ package receipt
 import (
 	"bytes"
 	"context"
+	"encoding/csv"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -687,6 +688,392 @@ func TestSaveReceipt_PersistsAndUpdatesComment(t *testing.T) {
 	}
 	if data.Lines[0].Qty != 3 {
 		t.Fatalf("expected merged qty 3, got %d", data.Lines[0].Qty)
+	}
+}
+
+func TestWriteItemUploadCSVForPallet_SetsBatchFlagFromBatchAndExpiry(t *testing.T) {
+	db := openTestDB(t)
+	seedPalletWithStatus(t, db, 59, "labelled")
+
+	expiry, _ := time.Parse("2006-01-02", "2028-09-18")
+	if err := SaveReceipt(context.Background(), db, nil, 1, ReceiptInput{
+		PalletID:      59,
+		SKU:           "SKU-BATCH",
+		Description:   "Batch Item",
+		UOM:           "unit",
+		Qty:           2,
+		BatchNumber:   "B-59",
+		ExpiryDate:    &expiry,
+		ItemBarcode:   "REF-B59",
+		CartonBarcode: "CARTON-B59",
+	}); err != nil {
+		t.Fatalf("save receipt line 1: %v", err)
+	}
+	if err := SaveReceipt(context.Background(), db, nil, 1, ReceiptInput{
+		PalletID:    59,
+		SKU:         "SKU-BATCH",
+		Description: "Batch Item",
+		UOM:         "unit",
+		Qty:         1,
+	}); err != nil {
+		t.Fatalf("save receipt line 2: %v", err)
+	}
+	if err := SaveReceipt(context.Background(), db, nil, 1, ReceiptInput{
+		PalletID:    59,
+		SKU:         "SKU-PLAIN",
+		Description: "Plain Item",
+		UOM:         "packs",
+		Qty:         4,
+	}); err != nil {
+		t.Fatalf("save receipt line 3: %v", err)
+	}
+
+	data, err := loadLabelledPalletUploadData(context.Background(), db, 59)
+	if err != nil {
+		t.Fatalf("load upload data: %v", err)
+	}
+
+	var out bytes.Buffer
+	if err := writeItemUploadCSVForPallet(&out, data); err != nil {
+		t.Fatalf("write item upload csv: %v", err)
+	}
+
+	rows, err := csv.NewReader(strings.NewReader(out.String())).ReadAll()
+	if err != nil {
+		t.Fatalf("parse item upload csv: %v", err)
+	}
+	if len(rows) != 3 {
+		t.Fatalf("expected header + 2 data rows, got %d rows", len(rows))
+	}
+	if rows[0][0] != "Item code" || rows[0][4] != "batch" {
+		t.Fatalf("unexpected header row: %+v", rows[0])
+	}
+
+	byItem := map[string][]string{}
+	for _, row := range rows[1:] {
+		byItem[row[0]] = row
+	}
+	if byItem["SKU-BATCH"][4] != "1" {
+		t.Fatalf("expected SKU-BATCH batch flag 1, got %q", byItem["SKU-BATCH"][4])
+	}
+	if byItem["SKU-BATCH"][2] != "unit" {
+		t.Fatalf("expected SKU-BATCH uom unit, got %q", byItem["SKU-BATCH"][2])
+	}
+	if byItem["SKU-BATCH"][3] != "REF-B59" {
+		t.Fatalf("expected SKU-BATCH reference REF-B59, got %q", byItem["SKU-BATCH"][3])
+	}
+	if byItem["SKU-BATCH"][9] != "Barcode 1" {
+		t.Fatalf("expected SKU-BATCH reference type Barcode 1, got %q", byItem["SKU-BATCH"][9])
+	}
+	if byItem["SKU-PLAIN"][4] != "0" {
+		t.Fatalf("expected SKU-PLAIN batch flag 0, got %q", byItem["SKU-PLAIN"][4])
+	}
+	if byItem["SKU-PLAIN"][2] != "unit" {
+		t.Fatalf("expected SKU-PLAIN uom unit, got %q", byItem["SKU-PLAIN"][2])
+	}
+	if byItem["SKU-PLAIN"][3] != "SKU-PLAIN" {
+		t.Fatalf("expected SKU-PLAIN reference SKU-PLAIN, got %q", byItem["SKU-PLAIN"][3])
+	}
+	if byItem["SKU-PLAIN"][9] != "Barcode 1" {
+		t.Fatalf("expected SKU-PLAIN reference type Barcode 1, got %q", byItem["SKU-PLAIN"][9])
+	}
+}
+
+func TestWriteItemUploadCSVForPallets_PrefersInnerBarcodeAcrossSelectedPallets(t *testing.T) {
+	pallets := []LabelledPalletUploadData{
+		{
+			PalletID: 70,
+			Lines: []LabelledPalletUploadLine{
+				{SKU: "SKU-CROSS", Description: "Cross SKU", Qty: 1},
+			},
+		},
+		{
+			PalletID: 71,
+			Lines: []LabelledPalletUploadLine{
+				{SKU: "SKU-CROSS", Description: "Cross SKU", Qty: 1, ItemBarcode: "INNER-CROSS"},
+			},
+		},
+	}
+
+	var out bytes.Buffer
+	if err := writeItemUploadCSVForPallets(&out, pallets); err != nil {
+		t.Fatalf("write item upload csv: %v", err)
+	}
+
+	rows, err := csv.NewReader(strings.NewReader(out.String())).ReadAll()
+	if err != nil {
+		t.Fatalf("parse item upload csv: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("expected header + 1 data row, got %d rows", len(rows))
+	}
+	if rows[1][0] != "SKU-CROSS" {
+		t.Fatalf("expected SKU-CROSS row, got %+v", rows[1])
+	}
+	if rows[1][3] != "INNER-CROSS" {
+		t.Fatalf("expected reference INNER-CROSS, got %q", rows[1][3])
+	}
+	if rows[1][9] != "Barcode 1" {
+		t.Fatalf("expected reference type Barcode 1, got %q", rows[1][9])
+	}
+}
+
+func TestWriteReceiptUploadCSVForPallet_SetsExpectedBatchPreferenceOnAllLines(t *testing.T) {
+	db := openTestDB(t)
+	seedPalletWithStatus(t, db, 60, "labelled")
+
+	expiry, _ := time.Parse("2006-01-02", "2029-01-07")
+	if err := SaveReceipt(context.Background(), db, nil, 1, ReceiptInput{
+		PalletID:    60,
+		SKU:         "SKU-WITH-BATCH",
+		Description: "Has batch and expiry",
+		UOM:         "unit",
+		Qty:         3,
+		BatchNumber: "BATCH-60",
+		ExpiryDate:  &expiry,
+	}); err != nil {
+		t.Fatalf("save receipt line 1: %v", err)
+	}
+	if err := SaveReceipt(context.Background(), db, nil, 1, ReceiptInput{
+		PalletID:    60,
+		SKU:         "SKU-NO-BATCH",
+		Description: "No batch",
+		UOM:         "unit",
+		Qty:         5,
+	}); err != nil {
+		t.Fatalf("save receipt line 2: %v", err)
+	}
+
+	data, err := loadLabelledPalletUploadData(context.Background(), db, 60)
+	if err != nil {
+		t.Fatalf("load upload data: %v", err)
+	}
+
+	var out bytes.Buffer
+	if err := writeReceiptUploadCSVForPallet(&out, data); err != nil {
+		t.Fatalf("write receipt upload csv: %v", err)
+	}
+
+	rows, err := csv.NewReader(strings.NewReader(out.String())).ReadAll()
+	if err != nil {
+		t.Fatalf("parse receipt upload csv: %v", err)
+	}
+	if len(rows) != 5 {
+		t.Fatalf("expected 2 metadata rows + header + 2 data rows, got %d rows", len(rows))
+	}
+	if rows[0][0] != "create" {
+		t.Fatalf("unexpected first metadata row: %+v", rows[0])
+	}
+	if rows[1][0] != "receipt_header,receipt_detail" {
+		t.Fatalf("unexpected second metadata row: %+v", rows[1])
+	}
+
+	header := rows[2]
+	colIdx := func(name string) int {
+		for i, h := range header {
+			if h == name {
+				return i
+			}
+		}
+		return -1
+	}
+	preferenceIdx := colIdx("receipt_preference")
+	receiptNumberIdx := colIdx("receipt_number")
+	receiptDateIdx := colIdx("receipt_date")
+	warehouseCodeIdx := colIdx("warehouse_code")
+	detailReceiptDateIdx := colIdx("detail_receipt_date")
+	itemCodeIdx := colIdx("item_code")
+	expectedBatchNoIdx := colIdx("expected_batch_no")
+	expectedBatchExpiryIdx := colIdx("expected_batch_expiry")
+	if preferenceIdx < 0 || receiptNumberIdx < 0 || receiptDateIdx < 0 || warehouseCodeIdx < 0 || detailReceiptDateIdx < 0 || itemCodeIdx < 0 || expectedBatchNoIdx < 0 || expectedBatchExpiryIdx < 0 {
+		t.Fatalf("missing expected columns in header: %+v", header)
+	}
+
+	today := time.Now().Format("01/02/2006")
+	for _, row := range rows[3:] {
+		if row[preferenceIdx] != "Expected Batch" {
+			t.Fatalf("expected receipt_preference Expected Batch, got %q for row %+v", row[preferenceIdx], row)
+		}
+		if row[receiptNumberIdx] != "P00000060" {
+			t.Fatalf("expected receipt_number P00000060, got %q", row[receiptNumberIdx])
+		}
+		if row[receiptDateIdx] != today {
+			t.Fatalf("expected receipt_date %q, got %q", today, row[receiptDateIdx])
+		}
+		if row[warehouseCodeIdx] != "TPS" {
+			t.Fatalf("expected warehouse_code TPS, got %q", row[warehouseCodeIdx])
+		}
+		if row[detailReceiptDateIdx] != today {
+			t.Fatalf("expected detail_receipt_date %q, got %q", today, row[detailReceiptDateIdx])
+		}
+	}
+
+	var noBatchRow []string
+	var withBatchRow []string
+	for _, row := range rows[3:] {
+		switch row[itemCodeIdx] {
+		case "SKU-NO-BATCH":
+			noBatchRow = row
+		case "SKU-WITH-BATCH":
+			withBatchRow = row
+		}
+	}
+	if len(noBatchRow) == 0 || len(withBatchRow) == 0 {
+		t.Fatalf("expected both data rows, got %+v", rows[3:])
+	}
+	if noBatchRow[expectedBatchNoIdx] != "" || noBatchRow[expectedBatchExpiryIdx] != "" {
+		t.Fatalf("expected blank expected batch columns for no-batch row, got %+v", noBatchRow)
+	}
+	if withBatchRow[expectedBatchNoIdx] == "" || withBatchRow[expectedBatchExpiryIdx] == "" {
+		t.Fatalf("expected populated expected batch columns for batch row, got %+v", withBatchRow)
+	}
+	if withBatchRow[expectedBatchExpiryIdx] != "01/07/2029" {
+		t.Fatalf("expected expected_batch_expiry 01/07/2029 (MM/DD/YYYY), got %q", withBatchRow[expectedBatchExpiryIdx])
+	}
+}
+
+func TestWriteReceiptUploadCSVForPallets_AppliesExpectedBatchPreferencePerReceipt(t *testing.T) {
+	pallets := []LabelledPalletUploadData{
+		{
+			PalletID:   80,
+			ClientName: "Client A",
+			Lines: []LabelledPalletUploadLine{
+				{SKU: "SKU-80-BATCH", Qty: 1, BatchNumber: "B80", ExpiryDate: "14/02/2030", HasBatchExpiry: true},
+				{SKU: "SKU-80-PLAIN", Qty: 2},
+			},
+		},
+		{
+			PalletID:   81,
+			ClientName: "Client A",
+			Lines: []LabelledPalletUploadLine{
+				{SKU: "SKU-81-PLAIN", Qty: 3},
+			},
+		},
+	}
+
+	var out bytes.Buffer
+	if err := writeReceiptUploadCSVForPallets(&out, pallets); err != nil {
+		t.Fatalf("write receipt upload csv: %v", err)
+	}
+
+	rows, err := csv.NewReader(strings.NewReader(out.String())).ReadAll()
+	if err != nil {
+		t.Fatalf("parse receipt upload csv: %v", err)
+	}
+	if len(rows) != 6 {
+		t.Fatalf("expected metadata + header + 3 data rows, got %d rows", len(rows))
+	}
+
+	header := rows[2]
+	idx := func(name string) int {
+		for i, h := range header {
+			if h == name {
+				return i
+			}
+		}
+		return -1
+	}
+	receiptNumberIdx := idx("receipt_number")
+	preferenceIdx := idx("receipt_preference")
+	if receiptNumberIdx < 0 || preferenceIdx < 0 {
+		t.Fatalf("missing receipt columns in %+v", header)
+	}
+
+	for _, row := range rows[3:] {
+		switch row[receiptNumberIdx] {
+		case "P00000080":
+			if row[preferenceIdx] != "Expected Batch" {
+				t.Fatalf("expected Expected Batch for P00000080, got %q", row[preferenceIdx])
+			}
+		case "P00000081":
+			if row[preferenceIdx] != "" {
+				t.Fatalf("expected blank preference for P00000081, got %q", row[preferenceIdx])
+			}
+		default:
+			t.Fatalf("unexpected receipt number: %q", row[receiptNumberIdx])
+		}
+	}
+}
+
+func TestWriteReceiptUploadCSVForPallet_LeavesPreferenceBlankWhenNoBatchExpiryLines(t *testing.T) {
+	db := openTestDB(t)
+	seedPalletWithStatus(t, db, 61, "labelled")
+
+	if err := SaveReceipt(context.Background(), db, nil, 1, ReceiptInput{
+		PalletID:    61,
+		SKU:         "SKU-PLAIN-61",
+		Description: "Plain line",
+		UOM:         "unit",
+		Qty:         2,
+	}); err != nil {
+		t.Fatalf("save receipt line: %v", err)
+	}
+
+	data, err := loadLabelledPalletUploadData(context.Background(), db, 61)
+	if err != nil {
+		t.Fatalf("load upload data: %v", err)
+	}
+
+	var out bytes.Buffer
+	if err := writeReceiptUploadCSVForPallet(&out, data); err != nil {
+		t.Fatalf("write receipt upload csv: %v", err)
+	}
+
+	rows, err := csv.NewReader(strings.NewReader(out.String())).ReadAll()
+	if err != nil {
+		t.Fatalf("parse receipt upload csv: %v", err)
+	}
+	if len(rows) != 4 {
+		t.Fatalf("expected 2 metadata rows + header + 1 data row, got %d rows", len(rows))
+	}
+
+	header := rows[2]
+	preferenceIdx := -1
+	receiptNumberIdx := -1
+	receiptDateIdx := -1
+	warehouseCodeIdx := -1
+	detailReceiptDateIdx := -1
+	for i, h := range header {
+		if h == "receipt_preference" {
+			preferenceIdx = i
+			break
+		}
+	}
+	for i, h := range header {
+		if h == "receipt_number" {
+			receiptNumberIdx = i
+		}
+		if h == "receipt_date" {
+			receiptDateIdx = i
+		}
+		if h == "warehouse_code" {
+			warehouseCodeIdx = i
+		}
+		if h == "detail_receipt_date" {
+			detailReceiptDateIdx = i
+		}
+	}
+	if preferenceIdx < 0 {
+		t.Fatalf("missing receipt_preference column in %+v", header)
+	}
+	if receiptNumberIdx < 0 || receiptDateIdx < 0 || warehouseCodeIdx < 0 || detailReceiptDateIdx < 0 {
+		t.Fatalf("missing receipt number/date columns in %+v", header)
+	}
+	if rows[3][preferenceIdx] != "" {
+		t.Fatalf("expected blank receipt_preference, got %q", rows[3][preferenceIdx])
+	}
+	today := time.Now().Format("01/02/2006")
+	if rows[3][receiptNumberIdx] != "P00000061" {
+		t.Fatalf("expected receipt_number P00000061, got %q", rows[3][receiptNumberIdx])
+	}
+	if rows[3][receiptDateIdx] != today {
+		t.Fatalf("expected receipt_date %q, got %q", today, rows[3][receiptDateIdx])
+	}
+	if rows[3][warehouseCodeIdx] != "TPS" {
+		t.Fatalf("expected warehouse_code TPS, got %q", rows[3][warehouseCodeIdx])
+	}
+	if rows[3][detailReceiptDateIdx] != today {
+		t.Fatalf("expected detail_receipt_date %q, got %q", today, rows[3][detailReceiptDateIdx])
 	}
 }
 

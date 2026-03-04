@@ -3,8 +3,11 @@ package receipt
 import (
 	"context"
 	"database/sql"
+	"encoding/csv"
 	"errors"
 	"fmt"
+	"io"
+	"strconv"
 	"strings"
 	"time"
 
@@ -14,6 +17,345 @@ import (
 	"receipter/infrastructure/sqlite"
 	"receipter/models"
 )
+
+var ErrPalletNotLabelled = errors.New("pallet is not labelled")
+
+type LabelledPalletUploadData struct {
+	PalletID          int64
+	ProjectID         int64
+	ProjectCode       string
+	ClientName        string
+	PalletStatus      string
+	PalletCreatedDate string
+	Lines             []LabelledPalletUploadLine
+}
+
+type LabelledPalletUploadLine struct {
+	SKU            string
+	Description    string
+	UOM            string
+	Qty            int64
+	BatchNumber    string
+	ExpiryDate     string
+	ItemBarcode    string
+	CartonBarcode  string
+	ReceiptDate    string
+	HasBatchExpiry bool
+}
+
+func loadLabelledPalletUploadData(ctx context.Context, db *sqlite.DB, palletID int64) (LabelledPalletUploadData, error) {
+	var data LabelledPalletUploadData
+	err := db.WithReadTx(ctx, func(ctx context.Context, tx bun.Tx) error {
+		var txErr error
+		data, txErr = loadLabelledPalletUploadDataTx(ctx, tx, palletID, 0, false)
+		return txErr
+	})
+	if err != nil {
+		return data, err
+	}
+	return data, nil
+}
+
+func loadLabelledPalletUploadDataForPallets(ctx context.Context, db *sqlite.DB, projectID int64, palletIDs []int64) ([]LabelledPalletUploadData, error) {
+	out := make([]LabelledPalletUploadData, 0, len(palletIDs))
+	if len(palletIDs) == 0 {
+		return out, nil
+	}
+
+	err := db.WithReadTx(ctx, func(ctx context.Context, tx bun.Tx) error {
+		for _, palletID := range palletIDs {
+			data, err := loadLabelledPalletUploadDataTx(ctx, tx, palletID, projectID, true)
+			if err != nil {
+				return err
+			}
+			out = append(out, data)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func loadLabelledPalletUploadDataTx(ctx context.Context, tx bun.Tx, palletID, projectID int64, enforceProject bool) (LabelledPalletUploadData, error) {
+	data := LabelledPalletUploadData{
+		PalletID: palletID,
+		Lines:    make([]LabelledPalletUploadLine, 0),
+	}
+
+	projectFilter := ""
+	args := []any{palletID}
+	if enforceProject {
+		projectFilter = " AND p.project_id = ?"
+		args = append(args, projectID)
+	}
+
+	if err := tx.NewRaw(`
+SELECT p.project_id,
+       p.status,
+       COALESCE(pj.code, '') AS project_code,
+       COALESCE(pj.client_name, '') AS client_name,
+       COALESCE(strftime('%d/%m/%Y', p.created_at), '') AS pallet_created_date
+FROM pallets p
+JOIN projects pj ON pj.id = p.project_id
+WHERE p.id = ?`+projectFilter, args...).Scan(ctx, &data.ProjectID, &data.PalletStatus, &data.ProjectCode, &data.ClientName, &data.PalletCreatedDate); err != nil {
+		return data, err
+	}
+
+	if data.PalletStatus != "labelled" {
+		return data, ErrPalletNotLabelled
+	}
+
+	if err := tx.NewRaw(`
+SELECT COALESCE(pr.sku, '') AS sku,
+       COALESCE(pr.description, '') AS description,
+       COALESCE(pr.uom, '') AS uom,
+       pr.qty,
+       COALESCE(pr.batch_number, '') AS batch_number,
+       COALESCE(strftime('%d/%m/%Y', pr.expiry_date), '') AS expiry_date,
+       COALESCE(pr.item_barcode, '') AS item_barcode,
+       COALESCE(pr.carton_barcode, '') AS carton_barcode,
+       COALESCE(strftime('%d/%m/%Y', pr.created_at), '') AS receipt_date,
+       CASE WHEN TRIM(COALESCE(pr.batch_number, '')) <> '' AND pr.expiry_date IS NOT NULL THEN 1 ELSE 0 END AS has_batch_expiry
+FROM pallet_receipts pr
+WHERE pr.pallet_id = ?
+  AND pr.project_id = ?
+ORDER BY pr.id ASC`, palletID, data.ProjectID).Scan(ctx, &data.Lines); err != nil {
+		return data, err
+	}
+
+	return data, nil
+}
+
+func writeItemUploadCSVForPallet(w io.Writer, data LabelledPalletUploadData) error {
+	return writeItemUploadCSV(w, []LabelledPalletUploadData{data})
+}
+
+func writeItemUploadCSVForPallets(w io.Writer, pallets []LabelledPalletUploadData) error {
+	return writeItemUploadCSV(w, pallets)
+}
+
+func writeItemUploadCSV(w io.Writer, pallets []LabelledPalletUploadData) error {
+	writer := csv.NewWriter(w)
+	defer writer.Flush()
+
+	if err := writer.Write([]string{"Item code", "Description", "UOM", "Reference", "batch", "source_code", "min_stock_level", "max_stock_level", "factor", "reference type"}); err != nil {
+		return err
+	}
+
+	type itemRow struct {
+		ItemCode       string
+		Description    string
+		UOM            string
+		Reference      string
+		HasBatchExpiry bool
+	}
+	rowCountEstimate := 0
+	for _, pallet := range pallets {
+		rowCountEstimate += len(pallet.Lines)
+	}
+	rows := make([]itemRow, 0, rowCountEstimate)
+	seen := make(map[string]int, rowCountEstimate)
+
+	for _, pallet := range pallets {
+		for _, line := range pallet.Lines {
+			sku := strings.TrimSpace(line.SKU)
+			if sku == "" {
+				continue
+			}
+
+			itemBarcode := strings.TrimSpace(line.ItemBarcode)
+			ref := sku
+			if itemBarcode != "" {
+				ref = itemBarcode
+			}
+
+			if idx, ok := seen[sku]; ok {
+				if rows[idx].Description == "" && strings.TrimSpace(line.Description) != "" {
+					rows[idx].Description = strings.TrimSpace(line.Description)
+				}
+				if rows[idx].UOM == "" && strings.TrimSpace(line.UOM) != "" {
+					rows[idx].UOM = strings.TrimSpace(line.UOM)
+				}
+				if itemBarcode != "" && rows[idx].Reference == rows[idx].ItemCode {
+					rows[idx].Reference = itemBarcode
+				}
+				rows[idx].HasBatchExpiry = rows[idx].HasBatchExpiry || line.HasBatchExpiry
+				continue
+			}
+
+			seen[sku] = len(rows)
+			rows = append(rows, itemRow{
+				ItemCode:       sku,
+				Description:    strings.TrimSpace(line.Description),
+				UOM:            strings.TrimSpace(line.UOM),
+				Reference:      ref,
+				HasBatchExpiry: line.HasBatchExpiry,
+			})
+		}
+	}
+
+	for _, row := range rows {
+		batchFlag := "0"
+		if row.HasBatchExpiry {
+			batchFlag = "1"
+		}
+		if err := writer.Write([]string{
+			row.ItemCode,
+			row.Description,
+			"unit",
+			row.Reference,
+			batchFlag,
+			"",
+			"0",
+			"100",
+			"1",
+			"Barcode 1",
+		}); err != nil {
+			return err
+		}
+	}
+
+	return writer.Error()
+}
+
+func writeReceiptUploadCSVForPallet(w io.Writer, data LabelledPalletUploadData) error {
+	return writeReceiptUploadCSV(w, []LabelledPalletUploadData{data})
+}
+
+func writeReceiptUploadCSVForPallets(w io.Writer, pallets []LabelledPalletUploadData) error {
+	return writeReceiptUploadCSV(w, pallets)
+}
+
+func writeReceiptUploadCSV(w io.Writer, pallets []LabelledPalletUploadData) error {
+	writer := csv.NewWriter(w)
+	defer writer.Flush()
+
+	header := []string{
+		"receipt_number",
+		"company_code",
+		"receipt_type",
+		"receipt_preference",
+		"order_number",
+		"receipt_date",
+		"warehouse_code",
+		"source_id",
+		"source_address",
+		"source_city",
+		"source_state",
+		"source_country_code",
+		"source_zipcode",
+		"advice_number",
+		"line_number",
+		"item_code",
+		"locating_rule",
+		"detail_receipt_date",
+		"quantity",
+		"erp_order_line_number",
+		"order_line_number",
+		"expected_batch_no",
+		"expected_batch_expiry",
+		"presale",
+		"automatic_locating_assignment",
+	}
+
+	createRow := make([]string, len(header))
+	createRow[0] = "create"
+	if err := writer.Write(createRow); err != nil {
+		return err
+	}
+
+	modeRow := make([]string, len(header))
+	modeRow[0] = "receipt_header,receipt_detail"
+	if err := writer.Write(modeRow); err != nil {
+		return err
+	}
+
+	if err := writer.Write(header); err != nil {
+		return err
+	}
+
+	receiptDate := time.Now().Format("01/02/2006")
+	warehouseCode := "TPS"
+
+	for _, pallet := range pallets {
+		hasExpectedBatch := false
+		for _, line := range pallet.Lines {
+			if line.HasBatchExpiry {
+				hasExpectedBatch = true
+				break
+			}
+		}
+
+		receiptPreference := ""
+		if hasExpectedBatch {
+			receiptPreference = "Expected Batch"
+		}
+
+		receiptNumber := fmt.Sprintf("P%08d", pallet.PalletID)
+		clientName := strings.TrimSpace(pallet.ClientName)
+
+		for i, line := range pallet.Lines {
+			lineNo := strconv.Itoa(i + 1)
+			detailReceiptDate := receiptDate
+
+			expectedBatchNo := ""
+			expectedBatchExpiry := ""
+			if line.HasBatchExpiry {
+				expectedBatchNo = strings.TrimSpace(line.BatchNumber)
+				expectedBatchExpiry = formatCanaryExpiryDate(strings.TrimSpace(line.ExpiryDate))
+			}
+
+			if err := writer.Write([]string{
+				receiptNumber,
+				clientName,
+				"Purchase Order",
+				receiptPreference,
+				"",
+				receiptDate,
+				warehouseCode,
+				"",
+				"",
+				"",
+				"",
+				"GB",
+				"",
+				lineNo,
+				lineNo,
+				strings.TrimSpace(line.SKU),
+				"Global Locating Rule",
+				detailReceiptDate,
+				strconv.FormatInt(line.Qty, 10),
+				lineNo,
+				lineNo,
+				expectedBatchNo,
+				expectedBatchExpiry,
+				"0",
+				"0",
+			}); err != nil {
+				return err
+			}
+		}
+	}
+
+	return writer.Error()
+}
+
+func formatCanaryExpiryDate(v string) string {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return ""
+	}
+	// Stored line expiry is DD/MM/YYYY; Canary7 expects MM/DD/YYYY.
+	if t, err := time.Parse("02/01/2006", v); err == nil {
+		return t.Format("01/02/2006")
+	}
+	if t, err := time.Parse("2006-01-02", v); err == nil {
+		return t.Format("01/02/2006")
+	}
+	return v
+}
 
 func LoadPageData(ctx context.Context, db *sqlite.DB, palletID int64) (PageData, error) {
 	data := PageData{PalletID: palletID, Lines: make([]ReceiptLineView, 0)}

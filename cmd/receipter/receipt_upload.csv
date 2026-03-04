@@ -1,0 +1,4 @@
+create,,,,,,,,,,,,,,,,,,,,,,,,
+"receipt_header,receipt_detail",,,,,,,,,,,,,,,,,,,,,,,,
+receipt_number, company_code, receipt_type,receipt_preference,order_number,receipt_date,warehouse_code, source_id,source_address,source_city,source_state,source_country_code,source_zipcode,advice_number,line_number,item_code,locating_rule,detail_receipt_date,quantity,erp_order_line_number,order_line_number,expected_batch_no,expected_batch_expiry,presale,automatic_locating_assignment
+8987,Healthy Food Brands,Purchase Order,Expected Batch,,16/01/2026,TPS,,,,,GB,,,1,DRSD0504EU,Global Locating Rule,16/01/2026,300,1,1,2522611-EU12,20/10/2028,0,0

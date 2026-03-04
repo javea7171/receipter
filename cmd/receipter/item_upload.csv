@@ -1,0 +1,2 @@
+Item code,Description,UOM,Reference,batch,source_code,min_stock_level,max_stock_level,factor,reference type
+GU1D3-123,UserGuide,unit,1234,0,,0,100,1,Barcode 1
