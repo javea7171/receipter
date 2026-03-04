@@ -117,7 +117,7 @@ SELECT COALESCE(pr.sku, '') AS sku,
        COALESCE(pr.item_barcode, '') AS item_barcode,
        COALESCE(pr.carton_barcode, '') AS carton_barcode,
        COALESCE(strftime('%d/%m/%Y', pr.created_at), '') AS receipt_date,
-       CASE WHEN TRIM(COALESCE(pr.batch_number, '')) <> '' AND pr.expiry_date IS NOT NULL THEN 1 ELSE 0 END AS has_batch_expiry
+       CASE WHEN TRIM(COALESCE(pr.batch_number, '')) <> '' OR pr.expiry_date IS NOT NULL THEN 1 ELSE 0 END AS has_batch_expiry
 FROM pallet_receipts pr
 WHERE pr.pallet_id = ?
   AND pr.project_id = ?
@@ -282,7 +282,7 @@ func writeReceiptUploadCSV(w io.Writer, pallets []LabelledPalletUploadData) erro
 	for _, pallet := range pallets {
 		hasExpectedBatch := false
 		for _, line := range pallet.Lines {
-			if line.HasBatchExpiry {
+			if strings.TrimSpace(line.ExpiryDate) != "" {
 				hasExpectedBatch = true
 				break
 			}
@@ -302,9 +302,17 @@ func writeReceiptUploadCSV(w io.Writer, pallets []LabelledPalletUploadData) erro
 
 			expectedBatchNo := ""
 			expectedBatchExpiry := ""
-			if line.HasBatchExpiry {
-				expectedBatchNo = strings.TrimSpace(line.BatchNumber)
-				expectedBatchExpiry = formatCanaryExpiryDate(strings.TrimSpace(line.ExpiryDate))
+			expiryRaw := strings.TrimSpace(line.ExpiryDate)
+			if expiryRaw != "" {
+				batchRaw := strings.TrimSpace(line.BatchNumber)
+				if batchRaw != "" {
+					expectedBatchNo = batchRaw
+				} else {
+					// If expiry is populated but batch is blank, Canary7 expects a batch value.
+					// Use the original (unreformatted) expiry date as the batch number.
+					expectedBatchNo = expiryRaw
+				}
+				expectedBatchExpiry = formatCanaryExpiryDate(expiryRaw)
 			}
 
 			if err := writer.Write([]string{

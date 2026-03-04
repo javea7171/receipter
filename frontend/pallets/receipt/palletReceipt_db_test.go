@@ -779,6 +779,139 @@ func TestWriteItemUploadCSVForPallet_SetsBatchFlagFromBatchAndExpiry(t *testing.
 	}
 }
 
+func TestWriteItemUploadCSVForPallet_SetsBatchFlagWhenOnlyExpiryPresent(t *testing.T) {
+	db := openTestDB(t)
+	seedPalletWithStatus(t, db, 62, "labelled")
+
+	expiry, _ := time.Parse("2006-01-02", "2029-01-07")
+	if err := SaveReceipt(context.Background(), db, nil, 1, ReceiptInput{
+		PalletID:    62,
+		SKU:         "SKU-EXP-ONLY",
+		Description: "Expiry only",
+		UOM:         "unit",
+		Qty:         1,
+		ExpiryDate:  &expiry,
+	}); err != nil {
+		t.Fatalf("save receipt: %v", err)
+	}
+
+	data, err := loadLabelledPalletUploadData(context.Background(), db, 62)
+	if err != nil {
+		t.Fatalf("load upload data: %v", err)
+	}
+
+	var out bytes.Buffer
+	if err := writeItemUploadCSVForPallet(&out, data); err != nil {
+		t.Fatalf("write item upload csv: %v", err)
+	}
+
+	rows, err := csv.NewReader(strings.NewReader(out.String())).ReadAll()
+	if err != nil {
+		t.Fatalf("parse item upload csv: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("expected header + 1 data row, got %d rows", len(rows))
+	}
+	if rows[1][0] != "SKU-EXP-ONLY" {
+		t.Fatalf("unexpected row: %+v", rows[1])
+	}
+	if rows[1][4] != "1" {
+		t.Fatalf("expected batch flag 1 when expiry present, got %q", rows[1][4])
+	}
+}
+
+func TestWriteReceiptUploadCSVForPallet_UsesExpiryAsBatchWhenBatchBlank(t *testing.T) {
+	db := openTestDB(t)
+	seedPalletWithStatus(t, db, 63, "labelled")
+
+	expiry, _ := time.Parse("2006-01-02", "2029-01-07")
+	if err := SaveReceipt(context.Background(), db, nil, 1, ReceiptInput{
+		PalletID:    63,
+		SKU:         "SKU-EXP-ONLY-63",
+		Description: "Expiry only",
+		UOM:         "unit",
+		Qty:         2,
+		ExpiryDate:  &expiry,
+	}); err != nil {
+		t.Fatalf("save receipt: %v", err)
+	}
+	if err := SaveReceipt(context.Background(), db, nil, 1, ReceiptInput{
+		PalletID:    63,
+		SKU:         "SKU-NO-EXP-63",
+		Description: "Plain line",
+		UOM:         "unit",
+		Qty:         1,
+	}); err != nil {
+		t.Fatalf("save receipt line 2: %v", err)
+	}
+
+	data, err := loadLabelledPalletUploadData(context.Background(), db, 63)
+	if err != nil {
+		t.Fatalf("load upload data: %v", err)
+	}
+
+	var out bytes.Buffer
+	if err := writeReceiptUploadCSVForPallet(&out, data); err != nil {
+		t.Fatalf("write receipt upload csv: %v", err)
+	}
+
+	rows, err := csv.NewReader(strings.NewReader(out.String())).ReadAll()
+	if err != nil {
+		t.Fatalf("parse receipt upload csv: %v", err)
+	}
+	if len(rows) != 5 {
+		t.Fatalf("expected 2 metadata rows + header + 2 data rows, got %d rows", len(rows))
+	}
+
+	header := rows[2]
+	colIdx := func(name string) int {
+		for i, h := range header {
+			if h == name {
+				return i
+			}
+		}
+		return -1
+	}
+	itemCodeIdx := colIdx("item_code")
+	preferenceIdx := colIdx("receipt_preference")
+	expectedBatchNoIdx := colIdx("expected_batch_no")
+	expectedBatchExpiryIdx := colIdx("expected_batch_expiry")
+	if itemCodeIdx < 0 || preferenceIdx < 0 || expectedBatchNoIdx < 0 || expectedBatchExpiryIdx < 0 {
+		t.Fatalf("missing expected columns in header: %+v", header)
+	}
+
+	var expOnlyRow []string
+	var plainRow []string
+	for _, row := range rows[3:] {
+		switch row[itemCodeIdx] {
+		case "SKU-EXP-ONLY-63":
+			expOnlyRow = row
+		case "SKU-NO-EXP-63":
+			plainRow = row
+		}
+	}
+	if len(expOnlyRow) == 0 || len(plainRow) == 0 {
+		t.Fatalf("expected both data rows, got %+v", rows[3:])
+	}
+	// Any line with expiry should enable Expected Batch preference on all lines for that receipt.
+	if expOnlyRow[preferenceIdx] != "Expected Batch" || plainRow[preferenceIdx] != "Expected Batch" {
+		t.Fatalf("expected receipt_preference Expected Batch for all rows, got exp=%q plain=%q", expOnlyRow[preferenceIdx], plainRow[preferenceIdx])
+	}
+
+	// DB stores expiry as DD/MM/YYYY; when batch is blank, use original expiry as expected_batch_no.
+	if expOnlyRow[expectedBatchNoIdx] != "07/01/2029" {
+		t.Fatalf("expected expected_batch_no 07/01/2029, got %q", expOnlyRow[expectedBatchNoIdx])
+	}
+	// Canary expects expiry in MM/DD/YYYY.
+	if expOnlyRow[expectedBatchExpiryIdx] != "01/07/2029" {
+		t.Fatalf("expected expected_batch_expiry 01/07/2029, got %q", expOnlyRow[expectedBatchExpiryIdx])
+	}
+	// Plain line should keep expected batch columns blank.
+	if plainRow[expectedBatchNoIdx] != "" || plainRow[expectedBatchExpiryIdx] != "" {
+		t.Fatalf("expected blank expected batch columns for plain row, got %+v", plainRow)
+	}
+}
+
 func TestWriteItemUploadCSVForPallets_PrefersInnerBarcodeAcrossSelectedPallets(t *testing.T) {
 	pallets := []LabelledPalletUploadData{
 		{
