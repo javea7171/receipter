@@ -312,7 +312,8 @@ func writeReceiptUploadCSV(w io.Writer, pallets []LabelledPalletUploadData) erro
 					// Use the original (unreformatted) expiry date as the batch number.
 					expectedBatchNo = expiryRaw
 				}
-				expectedBatchExpiry = formatCanaryExpiryDate(expiryRaw)
+				// expected_batch_expiry can use the raw DB value (DD/MM/YYYY).
+				expectedBatchExpiry = expiryRaw
 			}
 
 			if err := writer.Write([]string{
@@ -348,21 +349,6 @@ func writeReceiptUploadCSV(w io.Writer, pallets []LabelledPalletUploadData) erro
 	}
 
 	return writer.Error()
-}
-
-func formatCanaryExpiryDate(v string) string {
-	v = strings.TrimSpace(v)
-	if v == "" {
-		return ""
-	}
-	// Stored line expiry is DD/MM/YYYY; Canary7 expects MM/DD/YYYY.
-	if t, err := time.Parse("02/01/2006", v); err == nil {
-		return t.Format("01/02/2006")
-	}
-	if t, err := time.Parse("2006-01-02", v); err == nil {
-		return t.Format("01/02/2006")
-	}
-	return v
 }
 
 func LoadPageData(ctx context.Context, db *sqlite.DB, palletID int64) (PageData, error) {

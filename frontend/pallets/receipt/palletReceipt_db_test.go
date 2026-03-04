@@ -902,9 +902,9 @@ func TestWriteReceiptUploadCSVForPallet_UsesExpiryAsBatchWhenBatchBlank(t *testi
 	if expOnlyRow[expectedBatchNoIdx] != "07/01/2029" {
 		t.Fatalf("expected expected_batch_no 07/01/2029, got %q", expOnlyRow[expectedBatchNoIdx])
 	}
-	// Canary expects expiry in MM/DD/YYYY.
-	if expOnlyRow[expectedBatchExpiryIdx] != "01/07/2029" {
-		t.Fatalf("expected expected_batch_expiry 01/07/2029, got %q", expOnlyRow[expectedBatchExpiryIdx])
+	// expected_batch_expiry uses the raw DB value (DD/MM/YYYY).
+	if expOnlyRow[expectedBatchExpiryIdx] != "07/01/2029" {
+		t.Fatalf("expected expected_batch_expiry 07/01/2029, got %q", expOnlyRow[expectedBatchExpiryIdx])
 	}
 	// Plain line should keep expected batch columns blank.
 	if plainRow[expectedBatchNoIdx] != "" || plainRow[expectedBatchExpiryIdx] != "" {
@@ -1060,8 +1060,8 @@ func TestWriteReceiptUploadCSVForPallet_SetsExpectedBatchPreferenceOnAllLines(t 
 	if withBatchRow[expectedBatchNoIdx] == "" || withBatchRow[expectedBatchExpiryIdx] == "" {
 		t.Fatalf("expected populated expected batch columns for batch row, got %+v", withBatchRow)
 	}
-	if withBatchRow[expectedBatchExpiryIdx] != "01/07/2029" {
-		t.Fatalf("expected expected_batch_expiry 01/07/2029 (MM/DD/YYYY), got %q", withBatchRow[expectedBatchExpiryIdx])
+	if withBatchRow[expectedBatchExpiryIdx] != "07/01/2029" {
+		t.Fatalf("expected expected_batch_expiry 07/01/2029 (raw DB), got %q", withBatchRow[expectedBatchExpiryIdx])
 	}
 }
 
