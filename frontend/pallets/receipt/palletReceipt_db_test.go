@@ -1119,8 +1119,8 @@ func TestWriteReceiptUploadCSVForPallets_AppliesExpectedBatchPreferencePerReceip
 				t.Fatalf("expected Expected Batch for P00000080, got %q", row[preferenceIdx])
 			}
 		case "P00000081":
-			if row[preferenceIdx] != "" {
-				t.Fatalf("expected blank preference for P00000081, got %q", row[preferenceIdx])
+			if row[preferenceIdx] != "Expected Batch" {
+				t.Fatalf("expected Expected Batch for P00000081, got %q", row[preferenceIdx])
 			}
 		default:
 			t.Fatalf("unexpected receipt number: %q", row[receiptNumberIdx])
@@ -1128,7 +1128,7 @@ func TestWriteReceiptUploadCSVForPallets_AppliesExpectedBatchPreferencePerReceip
 	}
 }
 
-func TestWriteReceiptUploadCSVForPallet_LeavesPreferenceBlankWhenNoBatchExpiryLines(t *testing.T) {
+func TestWriteReceiptUploadCSVForPallet_AlwaysSetsExpectedBatchPreference(t *testing.T) {
 	db := openTestDB(t)
 	seedPalletWithStatus(t, db, 61, "labelled")
 
@@ -1192,8 +1192,8 @@ func TestWriteReceiptUploadCSVForPallet_LeavesPreferenceBlankWhenNoBatchExpiryLi
 	if receiptNumberIdx < 0 || receiptDateIdx < 0 || warehouseCodeIdx < 0 || detailReceiptDateIdx < 0 {
 		t.Fatalf("missing receipt number/date columns in %+v", header)
 	}
-	if rows[3][preferenceIdx] != "" {
-		t.Fatalf("expected blank receipt_preference, got %q", rows[3][preferenceIdx])
+	if rows[3][preferenceIdx] != "Expected Batch" {
+		t.Fatalf("expected receipt_preference Expected Batch, got %q", rows[3][preferenceIdx])
 	}
 	today := time.Now().Format("01/02/2006")
 	if rows[3][receiptNumberIdx] != "P00000061" {

@@ -280,19 +280,7 @@ func writeReceiptUploadCSV(w io.Writer, pallets []LabelledPalletUploadData) erro
 	warehouseCode := "TPS"
 
 	for _, pallet := range pallets {
-		hasExpectedBatch := false
-		for _, line := range pallet.Lines {
-			if strings.TrimSpace(line.ExpiryDate) != "" {
-				hasExpectedBatch = true
-				break
-			}
-		}
-
-		receiptPreference := ""
-		if hasExpectedBatch {
-			receiptPreference = "Expected Batch"
-		}
-
+		receiptPreference := "Expected Batch"
 		receiptNumber := fmt.Sprintf("P%08d", pallet.PalletID)
 		clientName := strings.TrimSpace(pallet.ClientName)
 

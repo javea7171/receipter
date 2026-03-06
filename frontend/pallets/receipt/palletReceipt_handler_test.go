@@ -491,8 +491,8 @@ func TestBulkReceiptUploadCSVTemplateHandler_ReturnsCombinedCSVForSelectedLabell
 		}
 	}
 	for _, row := range rowsByReceipt["P00000221"] {
-		if row[receiptPreferenceIdx] != "" {
-			t.Fatalf("expected blank receipt_preference for P00000221 rows, got %q", row[receiptPreferenceIdx])
+		if row[receiptPreferenceIdx] != "Expected Batch" {
+			t.Fatalf("expected Expected Batch for P00000221 rows, got %q", row[receiptPreferenceIdx])
 		}
 		if row[receiptDateIdx] != today {
 			t.Fatalf("expected receipt_date %q, got %q", today, row[receiptDateIdx])
